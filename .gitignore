@@ -1,0 +1,30 @@
+# Ambientes virtuais
+.venv/
+venv/
+env/
+
+# Cache e arquivos compilados do Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Configurações locais e dados específicos da máquina
+.env
+.env.*
+perfil.json
+
+# Saídas geradas pelo programa
+painel.html
+logs/*.csv
+
+# Configurações do VSCode e do sistema
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Relatórios e arquivos temporários
+*.tmp
+*.temp
+*.bak
