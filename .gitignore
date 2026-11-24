@@ -16,6 +16,12 @@ perfil.json
 # Saídas geradas pelo programa
 painel.html
 logs/*.csv
+dist/
+build/
+*.exe
+
+# Caches locais
+.pytest_cache/
 
 # Configurações do VSCode e do sistema
 .vscode/

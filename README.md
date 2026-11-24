@@ -1,77 +1,76 @@
 # Orquestrador de Downloads
 
-Sistema para analisar arquivos, identificar seu tipo documental, sugerir assunto e destino e gerar um painel HTML para revisão humana.
+Sistema inteligente para analisar arquivos, identificar seu tipo documental, sugerir assunto e destino, gerar painel de controle interativo e executar movimentações físicas seguras com rastreabilidade total.
 
-## Estado atual
+## Estado Atual
 
-A versão de trabalho é [`orquestrador.py`](orquestrador.py). O sistema funciona em modo seguro/dry-run: analisa e registra sugestões, mas não move arquivos automaticamente.
+- **Arquitetura:** Modular em pacotes sob `src/` (`readers`, `rules`, `logging`, `dashboard`, `actions`, `core`).
+- **Ponto de entrada:** [`orquestrador.py`](orquestrador.py).
+- **Modos operacionais:**
+  1. **Análise / Dry-Run (Padrão):** Analisa e registra sugestões no CSV e gera o painel visual, sem mover nenhum arquivo.
+  2. **Interativo / Servidor Local:** Inicia um microservidor HTTP local que conecta o painel no navegador com botões para mover em 1 clique e desfazer movimentações.
+- **Testes Automatizados:** 24 testes unitários e de integração cobrindo regras, extratores, segurança anti-colisão e geração de HTML.
 
 ## Funcionalidades
 
-- Leitura de arquivos TXT, DOCX, PDF, XLS/XLSX e PPTX.
-- Extração de texto e metadados básicos.
-- Classificação do tipo documental e do assunto.
-- Cálculo de confiança e registro das evidências utilizadas.
-- Sugestão de território e destino.
-- Geração do painel visual [`painel.html`](painel.html).
-- Registro das análises em arquivos CSV na pasta [`logs/`](logs/).
+- **Leitura multiformato:** TXT, DOCX, PDF, XLS/XLSX, PPTX e imagens com preview Base64.
+- **Classificação heurística:** Identificação de tipo documental (TCC, Matriz, Sumário) e de assunto (Ofício SEC, Planejamento Pedagógico, Lista de Alunos, Identidade Visual).
+- **Cálculo de confiança:** Níveis ALTA, MÉDIA e BAIXA, com rastreio de evidências e identificação de conflitos.
+- **Território documental:** Sugestão segura de pastas governadas por contexto.
+- **Painel interativo:** [`painel.html`](painel.html) moderno, com filtros, modal de visualização e botões de ação física direta.
+- **Movimentação segura:** Nunca sobrescreve arquivos (resolução automática de colisão com `_1`, `_2`), registra logs de movimentação e permite desfazer (*Undo*).
+- **Auditoria contínua:** Registros estruturados em CSV na pasta [`logs/`](logs/).
 
-## Estrutura
+## Estrutura do Projeto
 
 ```text
 .
-├── orquestrador.py              # versão de trabalho
-├── orquestrador_v*.py           # versões históricas
-├── painel.html                  # painel gerado
-├── logs/                        # registros CSV das análises
-├── DIARIO_DESENVOLVIMENTO.md    # contexto e histórico de desenvolvimento
-└── README.md                    # documentação geral
+├── orquestrador.py          # Ponto de entrada CLI
+├── painel.html              # Painel HTML gerado
+├── perfil.json              # Configuração de perfil e território
+├── requirements.txt         # Dependências consolidadas
+├── pytest.ini               # Configuração da suíte de testes
+├── src/                     # Código-fonte modular
+│   ├── config.py            # Configurações, caminhos e resiliência de perfil
+│   ├── core.py              # Motor de varredura e análise
+│   ├── server.py            # Servidor HTTP local para interatividade
+│   ├── readers/             # Extratores por formato (PDF, DOCX, XLSX, PPTX, etc.)
+│   ├── rules/               # Normalizador, classificadores e território
+│   ├── logging/             # Auditoria e gravação de logs CSV
+│   ├── dashboard/           # Gerador do painel HTML e componentes visuais
+│   └── actions/             # Motor de movimentação segura e reversão (Undo)
+├── tests/                   # Suíte de testes automatizados com pytest
+├── historico/               # Versões históricas arquivadas (v0.6 a v0.11.2.1)
+├── logs/                    # Arquivos de log e auditoria CSV
+└── DIARIO_DESENVOLVIMENTO.md
 ```
 
-## Dependências
+## Instalação
 
-O código utiliza principalmente:
+```bash
+# Ativar o ambiente virtual
+.venv\Scripts\activate
 
-- `python-docx`
-- `pypdf`
-- `openpyxl`
-- `xlrd`
-- `python-pptx`
-
-As dependências devem ser instaladas no ambiente Python utilizado para executar o projeto.
+# Instalar dependências
+pip install -r requirements.txt
+```
 
 ## Execução
 
+### 1. Varredura e Análise Segura (Dry-Run)
 ```bash
 python orquestrador.py
 ```
+Gera a análise de todos os arquivos, grava os registros em `logs/decisoes.csv` e abre o `painel.html` no navegador.
 
-O programa analisa os arquivos da pasta de entrada configurada no código, registra as decisões e gera o painel HTML.
+### 2. Modo Interativo Conectado (1 Clique para Mover / Desfazer)
+```bash
+python orquestrador.py --servidor
+```
+Executa a análise, abre o painel em `http://localhost:8080/` e permite que o usuário aprove as movimentações diretamente pelo navegador com segurança total.
 
-## Fluxo de funcionamento
-
-1. Localiza os arquivos de entrada.
-2. Extrai o conteúdo conforme o formato.
-3. Classifica o tipo documental e o assunto.
-4. Avalia possíveis destinos.
-5. Registra evidências, confiança e pendências.
-6. Gera o painel para revisão.
-
-## Segurança e limitações
-
-- O comportamento atual é dry-run; não há movimentação física automática.
-- Casos sem evidência suficiente ficam aguardando decisão humana.
-- Ainda não há suíte de testes automatizados nem arquivo de dependências consolidado.
-- Existem várias versões históricas que precisam ser consolidadas em uma versão oficial.
-
-## Histórico de versões
-
-As versões anteriores estão preservadas nos arquivos `orquestrador_v*.py`. O histórico detalhado de decisões e sessões está em [`DIARIO_DESENVOLVIMENTO.md`](DIARIO_DESENVOLVIMENTO.md).
-
-## Próximos passos sugeridos
-
-- Validar e corrigir o ambiente de execução Python.
-- Consolidar a versão oficial.
-- Criar testes automatizados.
-- Adicionar um arquivo de dependências.
-- Melhorar a identificação segura de destinos.
+### 3. Execução dos Testes Automatizados
+```bash
+pytest
+```
+Executa os 24 testes automatizados do sistema.

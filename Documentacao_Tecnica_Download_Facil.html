@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Documentação Técnica - Download Fácil</title>
+<style>
+    @page {
+        size: A4;
+        margin: 20mm 16mm 20mm 16mm;
+        @bottom-right {
+            content: "Página " counter(page);
+            font-size: 9pt;
+            color: #64748b;
+            font-family: 'Segoe UI', Arial, sans-serif;
+        }
+        @bottom-left {
+            content: "Download Fácil — Documentação Técnica v1.0.0";
+            font-size: 9pt;
+            color: #64748b;
+            font-family: 'Segoe UI', Arial, sans-serif;
+        }
+    }
+
+    * {
+        box-sizing: border-box;
+    }
+
+    body {
+        font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+        color: #1e293b;
+        line-height: 1.55;
+        font-size: 10pt;
+        margin: 0;
+        background: #ffffff;
+    }
+
+    /* CAPA */
+    .capa {
+        page-break-after: always;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        padding: 40px 10px 20px;
+    }
+
+    .capa-topo {
+        border-bottom: 4px solid #1d4ed8;
+        padding-bottom: 25px;
+    }
+
+    .capa-badge {
+        display: inline-block;
+        background: #eff6ff;
+        color: #1d4ed8;
+        border: 1px solid #bfdbfe;
+        font-size: 9pt;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        padding: 4px 12px;
+        border-radius: 999px;
+        margin-bottom: 15px;
+    }
+
+    .capa-titulo {
+        font-size: 32pt;
+        font-weight: 800;
+        color: #0f172a;
+        margin: 0 0 10px;
+        letter-spacing: -0.02em;
+        line-height: 1.15;
+    }
+
+    .capa-subtitulo {
+        font-size: 14pt;
+        color: #475569;
+        font-weight: 400;
+        margin: 0;
+        line-height: 1.4;
+    }
+
+    .capa-meio {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 24px 28px;
+        margin: 40px 0;
+    }
+
+    .capa-grade-meta {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 16px 24px;
+        font-size: 10pt;
+    }
+
+    .capa-item-meta strong {
+        display: block;
+        color: #0f172a;
+        font-weight: 600;
+        font-size: 10.5pt;
+    }
+
+    .capa-item-meta span {
+        color: #64748b;
+        font-size: 9pt;
+    }
+
+    .capa-rodape {
+        font-size: 9pt;
+        color: #64748b;
+        border-top: 1px solid #e2e8f0;
+        padding-top: 15px;
+        display: flex;
+        justify-content: space-between;
+    }
+
+    /* ESTRUTURA GERAL */
+    h1, h2, h3, h4 {
+        color: #0f172a;
+        font-weight: 700;
+    }
+
+    h1 {
+        font-size: 18pt;
+        border-bottom: 2px solid #e2e8f0;
+        padding-bottom: 8px;
+        margin-top: 32px;
+        margin-bottom: 16px;
+        page-break-after: avoid;
+    }
+
+    .quebra-pagina {
+        page-break-before: always;
+    }
+
+    h2 {
+        font-size: 13pt;
+        margin-top: 24px;
+        margin-bottom: 10px;
+        color: #1e293b;
+        page-break-after: avoid;
+    }
+
+    h3 {
+        font-size: 11pt;
+        margin-top: 18px;
+        margin-bottom: 8px;
+        color: #334155;
+        page-break-after: avoid;
+    }
+
+    p {
+        margin: 0 0 12px;
+        text-align: justify;
+    }
+
+    ul, ol {
+        margin: 0 0 14px 20px;
+        padding: 0;
+    }
+
+    li {
+        margin-bottom: 5px;
+    }
+
+    /* TABELAS */
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 16px 0 24px;
+        font-size: 9pt;
+        page-break-inside: avoid;
+    }
+
+    th {
+        background: #0f172a;
+        color: #ffffff;
+        text-align: left;
+        padding: 9px 12px;
+        font-weight: 600;
+        border: 1px solid #0f172a;
+    }
+
+    td {
+        padding: 8px 12px;
+        border: 1px solid #cbd5e1;
+        vertical-align: top;
+    }
+
+    tr:nth-child(even) td {
+        background: #f8fafc;
+    }
+
+    /* CAIXAS DE DESTAQUE / ALERTAS */
+    .alerta {
+        border-left: 4px solid #1d4ed8;
+        background: #eff6ff;
+        padding: 12px 16px;
+        border-radius: 0 8px 8px 0;
+        margin: 16px 0 20px;
+        font-size: 9.5pt;
+    }
+
+    .alerta.seguranca {
+        border-left-color: #059669;
+        background: #ecfdf5;
+    }
+
+    .alerta.atencao {
+        border-left-color: #d97706;
+        background: #fffbeb;
+    }
+
+    .alerta-titulo {
+        font-weight: 700;
+        margin-bottom: 4px;
+        color: #0f172a;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    /* CÓDIGO E TERMINAL */
+    pre, code {
+        font-family: 'Consolas', 'Courier New', monospace;
+    }
+
+    code {
+        background: #f1f5f9;
+        color: #0f172a;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 8.5pt;
+    }
+
+    pre {
+        background: #0f172a;
+        color: #f8fafc;
+        padding: 14px 16px;
+        border-radius: 8px;
+        font-size: 8.5pt;
+        line-height: 1.45;
+        overflow-x: auto;
+        margin: 14px 0 20px;
+        page-break-inside: avoid;
+    }
+
+    pre code {
+        background: transparent;
+        color: inherit;
+        padding: 0;
+    }
+
+    /* DIAGRAMAS E BOXES */
+    .diagrama-caixa {
+        background: #f8fafc;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        padding: 16px;
+        margin: 18px 0 24px;
+        text-align: center;
+        page-break-inside: avoid;
+    }
+
+    .diagrama-fluxo {
+        display: flex;
+        justify-content: space-around;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .etapa {
+        background: #ffffff;
+        border: 2px solid #1d4ed8;
+        border-radius: 8px;
+        padding: 10px 14px;
+        flex: 1;
+        font-size: 8.5pt;
+        font-weight: 600;
+        color: #0f172a;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+
+    .etapa.destaque {
+        background: #1d4ed8;
+        color: #ffffff;
+    }
+
+    .seta {
+        font-size: 14pt;
+        color: #94a3b8;
+        font-weight: 700;
+    }
+</style>
+</head>
+<body>
+
+<!-- CAPA -->
+<div class="capa">
+    <div class="capa-topo">
+        <span class="capa-badge">Documentação Técnica de Engenharia</span>
+        <h1 class="capa-titulo">Download Fácil</h1>
+        <p class="capa-subtitulo">Sistema Inteligente de Triagem, Governança Documental e Movimentação Assistida de Arquivos</p>
+    </div>
+
+    <div class="capa-meio">
+        <div class="capa-grade-meta">
+            <div class="capa-item-meta">
+                <span>Versão do Software</span>
+                <strong>1.0.0 (Release Oficial Standalone)</strong>
+            </div>
+            <div class="capa-item-meta">
+                <span>Norma e Padrão de Engenharia</span>
+                <strong>IEEE 1016 / ISO/IEC/IEEE 26514</strong>
+            </div>
+            <div class="capa-item-meta">
+                <span>Arquitetura de Execução</span>
+                <strong>Local-First (PE32+ Standalone Executable)</strong>
+            </div>
+            <div class="capa-item-meta">
+                <span>Data de Emissão</span>
+                <strong>23 de Novembro de 2026</strong>
+            </div>
+            <div class="capa-item-meta">
+                <span>Compatibilidade de SO</span>
+                <strong>Windows 10 / Windows 11 (64-bit)</strong>
+            </div>
+            <div class="capa-item-meta">
+                <span>Conformidade e Sigilo</span>
+                <strong>Privacidade Absoluta (LGPD Compliance)</strong>
+            </div>
+        </div>
+    </div>
+
+    <div class="capa-rodape">
+        <span>Engenharia de Software & Arquitetura de Sistemas</span>
+        <span>Uso Corporativo e Institucional</span>
+    </div>
+</div>
+
+<!-- SUMÁRIO EXECUTIVO -->
+<h1 class="quebra-pagina">1. Visão Geral e Princípios Arquiteturais</h1>
+
+<h2>1.1. Propósito do Sistema</h2>
+<p>
+O <strong>Download Fácil</strong> é uma solução local projetada para resolver a sobrecarga cognitiva e a desorganização crônica em pastas de recebimento de arquivos (com foco inicial na pasta padrão <code>Downloads</code> do sistema operacional). O software analisa, extrai dados internos, classifica o tipo e o assunto, calcula o grau de confiança das evidências e sugere o direcionamento para pastas de destino pré-autorizadas.
+</p>
+
+<div class="alerta seguranca">
+    <div class="alerta-titulo">🛡️ Princípio Safety-First & Privacidade LGPD</div>
+    O sistema adota o paradigma <em>local-first</em>. Nenhum arquivo, metadado ou trecho de texto é enviado para a nuvem ou servidores externos. Todas as operações operam sob isolamento local estrito, garantindo total conformidade com a LGPD e políticas rígidas de sigilo institucional.
+</div>
+
+<h2>1.2. Pilares Arquiteturais</h2>
+<ul>
+    <li><strong>Execução com Dry-Run Padrão:</strong> Antes de qualquer alteração física, o sistema realiza uma varredura completa e auditável, registrando as decisões em logs CSV e compilando um painel visual para homologação.</li>
+    <li><strong>Supervisão Humana Ativa (Human-in-the-Loop):</strong> A automação não substitui a responsabilidade do usuário. As regras geram recomendações transparentes com indicação explícita dos termos e sinais textuais que sustentam cada decisão.</li>
+    <li><strong>Prevenção Determinística de Sobrescrita:</strong> Em caso de movimentação para uma pasta onde já exista arquivo homônimo, o motor aplica sufixação incremental automática (<code>_1</code>, <code>_2</code>), eliminando o risco de perda acidental de dados.</li>
+    <li><strong>Capacidade Transacional de Reversão (Undo):</strong> Toda ação física realizada na sessão é empilhada em memória, permitindo reversão imediata ao local de origem com um único clique.</li>
+</ul>
+
+<div class="diagrama-caixa">
+    <div class="diagrama-fluxo">
+        <div class="etapa">1. Varredura<br><small>Downloads / Entradas</small></div>
+        <div class="seta">➔</div>
+        <div class="etapa">2. Extração<br><small>PDF, Word, Excel, PPT</small></div>
+        <div class="seta">➔</div>
+        <div class="etapa">3. Heurística<br><small>Tipo, Tema e Confiança</small></div>
+        <div class="seta">➔</div>
+        <div class="etapa destaque">4. Painel Visual<br><small>Revisão do Usuário</small></div>
+        <div class="seta">➔</div>
+        <div class="etapa">5. Movimentação<br><small>Anti-colisão + Undo</small></div>
+    </div>
+</div>
+
+---
+
+<h1 class="quebra-pagina">2. Estrutura de Pacotes e Componentes</h1>
+
+<p>
+A arquitetura do <strong>Download Fácil</strong> foi modularizada em pacotes com responsabilidades estritas e desacopladas sob o diretório <code>src/</code>:
+</p>
+
+<table>
+    <thead>
+        <tr>
+            <th style="width: 28%;">Pacote / Módulo</th>
+            <th style="width: 32%;">Responsabilidade Principal</th>
+            <th style="width: 40%;">Principais Funções / Saídas</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td><code>src/config.py</code></td>
+            <td>Configurações globais, limites e resiliência de caminhos.</td>
+            <td><code>carregar_perfil()</code>, <code>classificar_tipo()</code>, detecção dinâmica de usuário e pastas padrão.</td>
+        </tr>
+        <tr>
+            <td><code>src/readers/</code></td>
+            <td>Extratores especializados por formato técnico de arquivo.</td>
+            <td>Leitores de TXT, DOCX, PDF (<code>pypdf</code>), XLSX (<code>openpyxl</code>), XLS (<code>xlrd</code>), PPTX e conversão Base64 para mídia.</td>
+        </tr>
+        <tr>
+            <td><code>src/rules/</code></td>
+            <td>Motor de inferência, heurística e governança.</td>
+            <td><code>normalizar()</code>, <code>identificar_tipo_documental()</code>, <code>analisar_assunto()</code>, <code>avaliar_destino_territorio()</code>.</td>
+        </tr>
+        <tr>
+            <td><code>src/logging/</code></td>
+            <td>Auditoria determinística e registro histórico em disco.</td>
+            <td><code>preparar_log()</code>, <code>registrar_decisao()</code> em arquivos CSV codificados em UTF-8 com BOM.</td>
+        </tr>
+        <tr>
+            <td><code>src/actions/</code></td>
+            <td>Execução controlada de efeitos colaterais no filesystem.</td>
+            <td><code>mover_arquivo_seguro()</code>, <code>gerar_caminho_sem_colisao()</code>, <code>desfazer_ultima_movimentacao()</code>.</td>
+        </tr>
+        <tr>
+            <td><code>src/server.py</code></td>
+            <td>Microservidor HTTP nativo para o painel no navegador.</td>
+            <td>Endpoints REST locais (<code>/api/mover</code>, <code>/api/desfazer</code>, <code>/api/reanalisar</code>) na porta 8080.</td>
+        </tr>
+        <tr>
+            <td><code>src/dashboard/</code></td>
+            <td>Compilação e apresentação da interface do usuário.</td>
+            <td><code>gerar_painel_html()</code> com injeção de modais, previews e scripts de disparo assíncrono.</td>
+        </tr>
+        <tr>
+            <td><code>src/core.py</code></td>
+            <td>Pipeline de orquestração e interface de linha de comando.</td>
+            <td><code>analisar_arquivo()</code>, <code>executar_orquestracao()</code>, suporte a argumentos CLI (<code>--servidor</code>, <code>--apenas-analise</code>).</td>
+        </tr>
+    </tbody>
+</table>
+
+---
+
+<h1 class="quebra-pagina">3. Especificação das Interfaces e API REST Local</h1>
+
+<p>
+Quando iniciado em modo interativo (comportamento padrão ao dar duplo clique no executável ou via argumento <code>--servidor</code>), o sistema inicializa um servidor HTTP nativo restrito a <code>http://127.0.0.1:8080/</code>.
+</p>
+
+<h2>3.1. Catálogo de Endpoints</h2>
+
+<h3><code>POST /api/mover</code></h3>
+<p>Executa a movimentação física controlada de um arquivo da origem para o diretório de destino homologado.</p>
+<pre><code>// Requisição (JSON)
+{
+  "origem": "C:\\Users\\ALUNO - CETI\\Downloads\\Oficio_01.pdf",
+  "destino": "C:\\Users\\ALUNO - CETI\\Documents\\Revisar"
+}
+
+// Resposta com Sucesso (200 OK)
+{
+  "sucesso": true,
+  "origem": "C:\\Users\\ALUNO - CETI\\Downloads\\Oficio_01.pdf",
+  "destino": "C:\\Users\\ALUNO - CETI\\Documents\\Revisar\\Oficio_01.pdf",
+  "nome_final": "Oficio_01.pdf"
+}</code></pre>
+
+<h3><code>POST /api/desfazer</code></h3>
+<p>Reverte a última movimentação registrada na pilha de auditoria em memória, restaurando o arquivo ao local de origem.</p>
+<pre><code>// Resposta (200 OK)
+{
+  "sucesso": true,
+  "arquivo_restaurado": "C:\\Users\\ALUNO - CETI\\Downloads\\Oficio_01.pdf",
+  "mensagem": "Arquivo restaurado para: C:\\Users\\ALUNO - CETI\\Downloads\\Oficio_01.pdf"
+}</code></pre>
+
+<h3><code>POST /api/reanalisar</code></h3>
+<p>Dispara nova varredura e reanálise dos arquivos presentes na pasta de entrada.</p>
+<pre><code>// Resposta (200 OK)
+{
+  "sucesso": true,
+  "total": 64
+}</code></pre>
+
+---
+
+<h1 class="quebra-pagina">4. Especificações de Plataforma e Execução Windows</h1>
+
+<table>
+    <thead>
+        <tr>
+            <th>Requisito</th>
+            <th>Especificação Técnica Homologada</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td><strong>Sistemas Suportados</strong></td>
+            <td>Windows 11 (todas as edições 64-bit), Windows 10 (Build 1809+ 64-bit), Windows Server 2016 a 2025.</td>
+        </tr>
+        <tr>
+            <td><strong>Arquitetura de CPU</strong></td>
+            <td>x86_64 / AMD64 nativo (compatível com ARM64 via emulação nativa do Windows 11).</td>
+        </tr>
+        <tr>
+            <td><strong>Privilégios de Acesso</strong></td>
+            <td><strong>Usuário Padrão (Sem privilégios de Administrador).</strong> Zero disparos de UAC.</td>
+        </tr>
+        <tr>
+            <td><strong>Segurança de Rede</strong></td>
+            <td>Escuta estritamente em loopback interno (<code>127.0.0.1</code>). Nenhuma porta externa é aberta no Firewall.</td>
+        </tr>
+        <tr>
+            <td><strong>Executável Standalone</strong></td>
+            <td>Arquivo PE32+ autônomo (<code>dist/Orquestrador.exe</code>, ~26 MB), empacotado sem necessidade de Python na máquina.</td>
+        </tr>
+        <tr>
+            <td><strong>Tratamento de Codificação</strong></td>
+            <td>Suporte universal a UTF-8 com substituição de caracteres não mapeados para prevenção de falhas em consoles legados (CP1252).</td>
+        </tr>
+    </tbody>
+</table>
+
+<h2>4.1. Verificação de Qualidade e Testes Automatizados</h2>
+<p>
+O código-fonte do sistema é 100% coberto por suíte de testes automatizados com o framework <code>pytest</code>:
+</p>
+<ul>
+    <li><strong>Cobertura de Testes:</strong> 24 casos de teste unitários e de integração abrangendo normalização fonética, leitura de DOCX/PDF/planilhas, motor de território, gravação de logs, anti-colisão e geração de HTML.</li>
+    <li><strong>Tempo Médio de Execução da Suíte:</strong> 1.19 segundos.</li>
+    <li><strong>Taxa de Aprovação:</strong> 100% dos testes aprovados (Green).</li>
+</ul>
+
+---
+
+<h1 class="quebra-pagina">5. Guia de Manutenção e Extensibilidade</h1>
+
+<h2>5.1. Adição de Novas Regras Documentais</h2>
+<p>
+Para cadastrar novos tipos documentais reconhecidos pelo motor, insira a definição em <code>src/rules/classifiers.py</code>:
+</p>
+<pre><code>REGRAS_TIPO_DOCUMENTAL.append({
+    "tipo_documental": "CONTRATO_PRESTACAO_SERVICOS",
+    "sinais": [
+        "contrato de prestacao de servicos",
+        "contratante",
+        "contratada",
+        "clausula primeira",
+        "foro da comarca"
+    ],
+    "sinais_fortes": [
+        "contrato de prestacao de servicos",
+        "clausula primeira"
+    ],
+    "minimo_sinais": 3
+})</code></pre>
+
+<h2>5.2. Adição de Novos Extratores de Formato</h2>
+<ol>
+    <li>Crie o extrator em <code>src/readers/novo_reader.py</code> respeitando o limite máximo <code>MAX_TEXTO</code>.</li>
+    <li>Cadastre a extensão suportada no dicionário <code>LEITORES</code> em <code>src/readers/__init__.py</code>.</li>
+    <li>Execute o comando <code>pytest</code> no terminal para assegurar que nenhuma regressão foi introduzida.</li>
+</ol>
+
+<div class="alerta">
+    <div class="alerta-titulo">ℹ️ Registro de Decisões e Histórico</div>
+    Qualquer alteração em arquitetura, regras de território ou novas adições de bibliotecas deve ser registrada formalmente no arquivo <code>DIARIO_DESENVOLVIMENTO.md</code> presente na raiz do projeto.
+</div>
+
+</body>
+</html>

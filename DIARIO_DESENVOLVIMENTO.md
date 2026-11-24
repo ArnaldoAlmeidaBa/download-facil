@@ -4,12 +4,55 @@ Este arquivo preserva o contexto das decisões, alterações, problemas e próxi
 
 ## Estado atual
 
-- **Versão de trabalho:** `orquestrador.py`
-- **Painel:** `painel.html`
-- **Persistência:** arquivos CSV em `logs/`
-- **Modo operacional:** dry-run, sem movimentação automática de arquivos
-- **Situação:** protótipo avançado de análise documental, com classificação, sugestões de destino, logs e painel visual
-- **Pendências principais:** validar o ambiente Python, consolidar versões, criar testes e documentar dependências
+- **Arquitetura:** Modular em pacotes sob `src/` (`core`, `readers`, `rules`, `logging`, `dashboard`, `actions`, `server`)
+- **Ponto de entrada:** `orquestrador.py`
+- **Painel:** `painel.html` com suporte a modo interativo (mover em 1 clique e desfazer)
+- **Persistência:** arquivos CSV em `logs/` (`decisoes.csv`, `movimentacoes.csv`)
+- **Modo operacional:** Dry-run por padrão; acionamento físico opcional via servidor local (`python orquestrador.py --servidor`)
+- **Qualidade:** 24 testes automatizados com `pytest` (100% de aprovação)
+- **Status:** Estável, modularizado, testado e com resiliência total de perfil
+
+## Sessão — 2026-11-23 — Desbloqueio, Modularização, Testes e Interatividade
+
+### Objetivo
+
+Desbloquear a execução no usuário atual (`ALUNO - CETI`), eliminar pontos únicos de falha de configuração, arquivar versões históricas, modularizar o código-fonte, criar suíte de testes automatizados e implementar interatividade para movimentação segura.
+
+### Atividades realizadas
+
+- Corrigido o bloqueio crítico de `FileNotFoundError` ao carregar perfil: criada lógica com fallback automático (busca `%LOCALAPPDATA%`, `perfil.json` local ou gera padrão dinâmico).
+- Provisionada a pasta `%LOCALAPPDATA%\Akira` e `Documents\Revisar` para o usuário `ALUNO - CETI`.
+- Gerado o arquivo consolidado de dependências `requirements.txt` e configurado `pytest.ini`.
+- Arquivados 10 arquivos legados `orquestrador_v*.py` na pasta `historico/`, limpando a raiz do repositório.
+- Modularizada toda a base de código (~4.100 linhas monolíticas) em pacotes sob `src/`:
+  - `src/config.py`: constantes, caminhos e carregamento tolerante a falhas.
+  - `src/readers/`: extratores específicos para TXT, DOCX, PDF, XLSX, XLS, PPTX e previews de imagem/mídia.
+  - `src/rules/`: normalização de strings, regras de tipo documental, assunto e território governado.
+  - `src/logging/`: registro estruturado de auditoria em CSV.
+  - `src/dashboard/`: gerador do painel HTML com botões interativos e toasts visuais.
+  - `src/actions/`: motor de movimentação com resolução automática de colisões de nome (`_1`, `_2`) e pilha de reversão (*Undo*).
+  - `src/server.py`: microservidor HTTP nativo local para servir o painel e processar comandos de movimentação/reversão.
+  - `src/core.py`: motor orquestrador com suporte a CLI (`--servidor`, `--porta`, `--sem-navegador`).
+- Criada suíte completa de testes unitários e de integração (`tests/`):
+  - `test_normalizer.py`
+  - `test_classifiers.py`
+  - `test_territory.py`
+  - `test_readers.py`
+  - `test_logger.py`
+  - `test_file_mover.py`
+  - `test_dashboard.py`
+- Executada a análise real de ponta a ponta sobre 63 arquivos da pasta de Downloads do usuário atual.
+
+### Testes e validações
+
+- `pytest`: 24 testes executados e 100% aprovados em 1.17s.
+- `python orquestrador.py --sem-navegador`: Análise executada com sucesso sobre 63 arquivos reais, gerando `logs/decisoes.csv` e `painel.html`.
+
+### Próximos passos
+
+1. Adicionar regras universais de identificação para documentos civis (RG, CPF, CNH) e faturas financeiras.
+2. Empacotar em executável desktop `.exe` para distribuição sem necessidade de Python.
+3. Adicionar monitoramento em segundo plano com ícone na bandeja do sistema (System Tray).
 
 ## Sessão — 2026-09-09 — Preparação do ambiente da nova máquina
 
