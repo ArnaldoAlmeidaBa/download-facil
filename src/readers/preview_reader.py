@@ -2,6 +2,7 @@
 from pathlib import Path
 import base64
 import mimetypes
+from src.document_access import autorizar_documento
 from src.config import (
     MAX_PREVIEW_TEXTO,
     MAX_PREVIEW_IMAGEM_BYTES,
@@ -60,9 +61,17 @@ def preparar_preview(arquivo: Path, conteudo: str, estado_leitura: str) -> dict:
     extensao = arquivo.suffix.lower()
 
     if extensao == ".pdf":
+        if estado_leitura.startswith("ERRO_LEITURA"):
+            if "protegido" in estado_leitura.lower():
+                mensagem = "Este PDF está protegido por senha e não pode ser pré-visualizado."
+            else:
+                mensagem = "Este PDF está inválido, inacessível ou não pôde ser lido."
+            return {"tipo": "mensagem", "url": "", "conteudo": mensagem}
+
+        identificador = autorizar_documento(arquivo)
         return {
             "tipo": "pdf",
-            "url": arquivo.resolve().as_uri(),
+            "url": f"/api/documento/{identificador}",
             "conteudo": "",
         }
 

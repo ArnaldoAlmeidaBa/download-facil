@@ -9,8 +9,40 @@ Este arquivo preserva o contexto das decisões, alterações, problemas e próxi
 - **Painel:** `painel.html` com suporte a modo interativo (mover em 1 clique e desfazer)
 - **Persistência:** arquivos CSV em `logs/` (`decisoes.csv`, `movimentacoes.csv`)
 - **Modo operacional:** Dry-run por padrão; acionamento físico opcional via servidor local (`python orquestrador.py --servidor`)
-- **Qualidade:** 24 testes automatizados com `pytest` (100% de aprovação)
-- **Status:** Estável, modularizado, testado e com resiliência total de perfil
+- **Qualidade:** 29 testes automatizados com `pytest` (última execução: 100% de aprovação)
+- **Status:** Modularizado; correção do preview de PDF homologada visualmente pelo usuário em 24/11/2026
+
+## Sessão — 2026-11-24 — Correção e homologação do preview de PDF (EXP-02C)
+
+### Objetivo
+
+Restabelecer o preview de PDF mantendo o processamento local, o visualizador nativo do navegador e o backend Python.
+
+### Atividades realizadas
+
+- Substituído o uso de URI `file://` por endpoint HTTP local para entrega sob demanda de PDFs autorizados.
+- Adicionado registro de documentos permitidos por identificador e endpoint com respostas para arquivos inexistentes, inválidos e protegidos.
+- Preservada a extração de texto via `pypdf` e o fluxo existente de classificação.
+- Adicionado suporte a requisições HTTP Range e incluído o novo módulo na configuração do PyInstaller.
+- Criados testes para PDFs simples, multipágina, nomes com espaços/acentuação, inválidos, protegidos, inexistentes e não autorizados, além dos previews de mídia.
+- **Homologação humana:** o usuário confirmou visualmente o preview de PDFs, incluindo documentos com múltiplas páginas, e também os previews de XLSX, DOCX, PPTX e arquivos de mídia testados.
+
+### Testes e validações
+
+- `python -m pytest -q`: 29 testes aprovados.
+- `python -m compileall -q src tests orquestrador.py`: concluído sem erros.
+- Baseline Git `baseline-pre-v0.2` conferido antes da implementação.
+
+### Pendências futuras
+
+1. Elaborar uma Matriz de Capacidades Documentais por formato.
+2. Investigar formatos cujo preview não está disponível.
+3. Criar mensagens amigáveis para formatos não suportados.
+4. Prevenir a análise dos próprios artefatos gerados pelo sistema.
+5. Otimizar previews de imagens, áudio e vídeo com carregamento sob demanda.
+6. Validar o empacotamento PyInstaller.
+
+Essas pendências não fazem parte da missão EXP-02C homologada.
 
 ## Sessão — 2026-11-23 — Desbloqueio, Modularização, Testes e Interatividade
 

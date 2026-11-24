@@ -4,6 +4,9 @@ from pathlib import Path
 import json
 import webbrowser
 from urllib.parse import parse_qs, urlparse
+import re
+from pypdf import PdfReader
+from pypdf.errors import PdfReadError
 
 from src.config import PAINEL_FILE, carregar_perfil
 from src.actions.file_mover import (
@@ -12,6 +15,7 @@ from src.actions.file_mover import (
     obter_historico_movimentacoes,
 )
 from src.core import executar_orquestracao
+from src.document_access import obter_documento_autorizado
 
 
 class OrquestradorRequestHandler(BaseHTTPRequestHandler):
@@ -22,7 +26,6 @@ class OrquestradorRequestHandler(BaseHTTPRequestHandler):
         self.send_response(status_code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(corpo)))
-        self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.end_headers()
@@ -30,10 +33,104 @@ class OrquestradorRequestHandler(BaseHTTPRequestHandler):
 
     def do_OPTIONS(self):
         self.send_response(200)
-        self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.end_headers()
+
+    def _responder_texto(self, status_code: int, mensagem: str, content_type: str = "text/plain; charset=utf-8"):
+        corpo = mensagem.encode("utf-8")
+        self.send_response(status_code)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(corpo)))
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(corpo)
+
+    def _servir_pdf_autorizado(self, identificador: str):
+        if not re.fullmatch(r"[0-9a-f]{64}", identificador or ""):
+            self._responder_texto(404, "Documento não autorizado.")
+            return
+
+        arquivo = obter_documento_autorizado(identificador)
+        if arquivo is None:
+            self._responder_texto(404, "Documento não autorizado.")
+            return
+        if not arquivo.exists():
+            self._responder_texto(404, "Documento não encontrado.")
+            return
+        if not arquivo.is_file():
+            self._responder_texto(404, "Documento não encontrado.")
+            return
+
+        try:
+            leitor = PdfReader(str(arquivo))
+            if getattr(leitor, "is_encrypted", False):
+                self._responder_texto(423, "Documento PDF protegido por senha.")
+                return
+        except PdfReadError:
+            self._responder_texto(422, "Documento PDF inválido.")
+            return
+        except (OSError, PermissionError):
+            self._responder_texto(403, "Documento PDF inacessível.")
+            return
+
+        try:
+            tamanho = arquivo.stat().st_size
+            arquivo_aberto = arquivo.open("rb")
+        except (OSError, PermissionError):
+            self._responder_texto(403, "Documento PDF inacessível.")
+            return
+
+        inicio = 0
+        fim = tamanho - 1
+        status_code = 200
+        faixa = self.headers.get("Range")
+        if faixa:
+            correspondencia = re.fullmatch(r"bytes=(\d*)-(\d*)", faixa.strip())
+            if correspondencia:
+                primeiro, ultimo = correspondencia.groups()
+                try:
+                    inicio = int(primeiro) if primeiro else max(0, tamanho - int(ultimo))
+                    fim = int(ultimo) if ultimo else tamanho - 1
+                except (TypeError, ValueError):
+                    inicio = 0
+                    fim = tamanho - 1
+                inicio = max(0, inicio)
+                fim = min(tamanho - 1, fim)
+                if inicio > fim:
+                    self.send_response(416)
+                    self.send_header("Content-Range", f"bytes */{tamanho}")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    arquivo_aberto.close()
+                    return
+                status_code = 206
+
+        comprimento = fim - inicio + 1
+        self.send_response(status_code)
+        self.send_header("Content-Type", "application/pdf")
+        self.send_header("Content-Length", str(comprimento))
+        self.send_header("Accept-Ranges", "bytes")
+        if status_code == 206:
+            self.send_header("Content-Range", f"bytes {inicio}-{fim}/{tamanho}")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "SAMEORIGIN")
+        self.end_headers()
+        try:
+            arquivo_aberto.seek(inicio)
+            restante = comprimento
+            while restante > 0:
+                bloco = arquivo_aberto.read(min(1024 * 1024, restante))
+                if not bloco:
+                    break
+                self.wfile.write(bloco)
+                restante -= len(bloco)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        finally:
+            arquivo_aberto.close()
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -55,6 +152,11 @@ class OrquestradorRequestHandler(BaseHTTPRequestHandler):
                 "status": "online",
                 "historico": obter_historico_movimentacoes(),
             })
+            return
+
+        if parsed.path.startswith("/api/documento/"):
+            identificador = parsed.path[len("/api/documento/"):].strip("/")
+            self._servir_pdf_autorizado(identificador)
             return
 
         self.send_error(404, "Recurso não encontrado")
