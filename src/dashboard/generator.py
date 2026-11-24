@@ -38,6 +38,39 @@ def contar_tipo(
     )
 
 
+def contar_estado(registros: list[dict], estado: str) -> int:
+    return sum(
+        1
+        for registro in registros
+        if registro.get("estado_operacional", "AGUARDANDO_DECISAO_HUMANA") == estado
+    )
+
+
+def contar_movimentados(registros: list[dict]) -> int:
+    return sum(
+        1
+        for registro in registros
+        if registro.get("estado_operacional", "").startswith("MOVIDO")
+    )
+
+
+def contar_inconsistencias(registros: list[dict]) -> int:
+    return sum(
+        1
+        for registro in registros
+        if registro.get("estado_operacional", "AGUARDANDO_DECISAO_HUMANA")
+        in {
+            "AUSENTE_OU_RENOMEADO",
+            "ALTERADO_EXTERNAMENTE",
+            "SUBSTITUIDO_EXTERNAMENTE",
+            "MOVIDO_AUSENTE",
+            "MOVIDO_ALTERADO",
+            "MOVIDO_SUBSTITUIDO",
+            "MOVIDO_SEM_PREVIEW",
+        }
+    )
+
+
 def gerar_html_preview(
     registro: dict,
     indice: int,
@@ -302,15 +335,30 @@ def gerar_painel_html(
             )
         )
 
-        estado_visual = (
-            "Precisa de atenção"
-            if problema
-            else "Aguardando decisão"
+        estado_operacional = registro.get(
+            "estado_operacional",
+            "AGUARDANDO_DECISAO_HUMANA",
         )
-
+        rotulos_estado = {
+            "AGUARDANDO_DECISAO_HUMANA": "Aguardando decisão",
+            "MOVIDO": "Movimentado",
+            "AUSENTE_OU_RENOMEADO": "Ausente ou renomeado — reanalise",
+            "ALTERADO_EXTERNAMENTE": "Alterado externamente — reanalise",
+            "SUBSTITUIDO_EXTERNAMENTE": "Substituído externamente — reanalise",
+            "MOVIDO_AUSENTE": "Movido; arquivo ausente",
+            "MOVIDO_ALTERADO": "Movido; arquivo alterado",
+            "MOVIDO_SUBSTITUIDO": "Movido; arquivo substituído",
+            "MOVIDO_SEM_PREVIEW": "Movido; preview indisponível",
+        }
+        estado_visual = rotulos_estado.get(
+            estado_operacional,
+            "Precisa de atenção" if problema else "Estado não reconhecido",
+        )
         classe_status = (
-            "status problema"
-            if problema
+            "status movimentado"
+            if estado_operacional == "MOVIDO"
+            else "status problema"
+            if estado_operacional != "AGUARDANDO_DECISAO_HUMANA" or problema
             else "status"
         )
 
@@ -318,7 +366,11 @@ def gerar_painel_html(
         destino_acao = registro.get("destino_caminho") or revisar_padrao
         id_arquivo = registro.get("id_arquivo")
         id_destino = identificador_destino(destino_acao)
-        if id_arquivo and id_destino:
+        if (
+            estado_operacional == "AGUARDANDO_DECISAO_HUMANA"
+            and id_arquivo
+            and id_destino
+        ):
             classe_botao = (
                 "btn-acao-mover"
                 if registro.get("destino_caminho")
@@ -335,15 +387,25 @@ def gerar_painel_html(
                         📁 Mover para {destino}
                     </button>
             """
+        elif estado_operacional == "MOVIDO":
+            btn_acao_html = """
+                    <button
+                        type="button"
+                        class="btn-acao-sucesso"
+                        disabled
+                    >
+                        ✓ Movido com Sucesso
+                    </button>
+            """
         else:
             btn_acao_html = f"""
                     <button
                         type="button"
                         class="btn-acao-revisar"
                         disabled
-                        title="Arquivo ou destino fora da autorização atual."
+                        title="{escape(estado_visual)}"
                     >
-                        📂 Mover não disponível
+                        Reanálise necessária
                     </button>
             """
 
@@ -352,6 +414,7 @@ def gerar_painel_html(
             class="ficha"
             data-busca="{busca}"
             data-tipo="{tipo_tecnico}"
+            data-estado-operacional="{escape(estado_operacional)}"
         >
 
             <div class="ficha-topo">
@@ -727,6 +790,9 @@ def gerar_painel_html(
         - compactados
         - instaladores
     )
+    aguardando = contar_estado(visiveis, "AGUARDANDO_DECISAO_HUMANA")
+    movimentados = contar_movimentados(visiveis)
+    inconsistencias = contar_inconsistencias(visiveis)
 
     gerado_em = datetime.now().strftime(
         "%d/%m/%Y às %H:%M"
@@ -1245,6 +1311,11 @@ aside h4 {{
     color: #b42318;
 }}
 
+.status.movimentado {{
+    background: #d1fadf;
+    color: #05603a;
+}}
+
 .organizacao .campo {{
     margin-bottom: 7px;
 }}
@@ -1718,9 +1789,36 @@ footer {{
         Estado
     </h4>
 
-    <div class="menu-item">
-        <span>Aguardando decisão</span>
+    <div
+        class="menu-item filtro-estado ativo"
+        data-filtro-estado="TODOS"
+    >
+        <span>Todos os estados</span>
         <span class="contagem">{total}</span>
+    </div>
+
+    <div
+        class="menu-item filtro-estado"
+        data-filtro-estado="AGUARDANDO_DECISAO_HUMANA"
+    >
+        <span>Aguardando decisão</span>
+        <span class="contagem" data-contagem-estado="AGUARDANDO_DECISAO_HUMANA">{aguardando}</span>
+    </div>
+
+    <div
+        class="menu-item filtro-estado"
+        data-filtro-estado="MOVIDO"
+    >
+        <span>Movimentados</span>
+        <span class="contagem" data-contagem-estado="MOVIDO">{movimentados}</span>
+    </div>
+
+    <div
+        class="menu-item filtro-estado"
+        data-filtro-estado="INCONSISTENCIAS"
+    >
+        <span>Inconsistências</span>
+        <span class="contagem" data-contagem-estado="INCONSISTENCIAS">{inconsistencias}</span>
     </div>
 
 </aside>
@@ -1845,6 +1943,10 @@ const filtros = Array.from(
     document.querySelectorAll(".filtro")
 );
 
+const filtrosEstado = Array.from(
+    document.querySelectorAll(".filtro-estado")
+);
+
 const semResultados =
     document.getElementById(
         "sem-resultados"
@@ -1869,6 +1971,7 @@ const modalFechar =
     );
 
 let filtroAtual = "TODOS";
+let filtroEstadoAtual = "TODOS";
 
 
 function normalizarTexto(texto) {{
@@ -1902,6 +2005,9 @@ function aplicarFiltros() {{
             const tipo =
                 ficha.dataset.tipo || "";
 
+            const estado =
+                ficha.dataset.estadoOperacional || "";
+
             const correspondeBusca =
                 !termo ||
                 texto.includes(termo);
@@ -1921,9 +2027,23 @@ function aplicarFiltros() {{
                     ].includes(tipo)
                 );
 
+            const correspondeEstado =
+                filtroEstadoAtual === "TODOS" ||
+                estado === filtroEstadoAtual ||
+                (
+                    filtroEstadoAtual === "MOVIDO" &&
+                    estado.startsWith("MOVIDO_")
+                ) ||
+                (
+                    filtroEstadoAtual === "INCONSISTENCIAS" &&
+                    estado !== "AGUARDANDO_DECISAO_HUMANA" &&
+                    estado !== "MOVIDO"
+                );
+
             const mostrar =
                 correspondeBusca &&
-                correspondeTipo;
+                correspondeTipo &&
+                correspondeEstado;
 
             ficha.style.display =
                 mostrar
@@ -1941,6 +2061,52 @@ function aplicarFiltros() {{
         visiveis === 0
         ? "block"
         : "none";
+}}
+
+
+function salvarFiltros() {{
+    try {{
+        sessionStorage.setItem(
+            "download-facil-filtros",
+            JSON.stringify({{
+                tipo: filtroAtual,
+                estado: filtroEstadoAtual,
+                busca: busca.value
+            }})
+        );
+    }} catch (e) {{}}
+}}
+
+function restaurarFiltros() {{
+    try {{
+        const salvo = sessionStorage.getItem("download-facil-filtros");
+        if (!salvo) return;
+        const filtrosSalvos = JSON.parse(salvo);
+        const filtroTipo = filtros.find(
+            item => item.dataset.filtro === filtrosSalvos.tipo
+        );
+        const filtroEstado = filtrosEstado.find(
+            item => item.dataset.filtroEstado === filtrosSalvos.estado
+        );
+
+        if (filtroTipo) {{
+            filtros.forEach(item => item.classList.remove("ativo"));
+            filtroTipo.classList.add("ativo");
+            filtroAtual = filtroTipo.dataset.filtro;
+        }}
+        if (filtroEstado) {{
+            filtrosEstado.forEach(item => item.classList.remove("ativo"));
+            filtroEstado.classList.add("ativo");
+            filtroEstadoAtual = filtroEstado.dataset.filtroEstado;
+        }}
+        if (typeof filtrosSalvos.busca === "string") {{
+            busca.value = filtrosSalvos.busca;
+        }}
+    }} catch (e) {{
+        try {{
+            sessionStorage.removeItem("download-facil-filtros");
+        }} catch (erro) {{}}
+    }}
 }}
 
 
@@ -2026,6 +2192,26 @@ filtros.forEach(
 );
 
 
+filtrosEstado.forEach(
+    filtro => {{
+        filtro.addEventListener(
+            "click",
+            () => {{
+                filtrosEstado.forEach(
+                    item => item.classList.remove("ativo")
+                );
+                filtro.classList.add("ativo");
+                filtroEstadoAtual = filtro.dataset.filtroEstado;
+                aplicarFiltros();
+            }}
+        );
+    }}
+);
+
+restaurarFiltros();
+aplicarFiltros();
+
+
 document
     .querySelectorAll(
         ".visualizar"
@@ -2109,17 +2295,16 @@ async function moverArquivo(btn) {{
         }});
         const dados = await resp.json();
         if (resp.ok && dados.sucesso) {{
-            btn.innerText = "✓ Movido com Sucesso";
-            btn.className = "btn-acao-sucesso";
-            const ficha = btn.closest(".ficha");
-            if (ficha) {{
-                ficha.style.opacity = "0.55";
-            }}
-            mostrarNotificacao("Arquivo movido para: " + dados.nome_final);
+            salvarFiltros();
+            location.reload();
         }} else {{
             btn.disabled = false;
             btn.innerText = textoOriginal;
             alert("Não foi possível mover: " + (dados.erro || "Erro"));
+            if (dados.estado_operacional) {{
+                salvarFiltros();
+                location.reload();
+            }}
         }}
     }} catch (e) {{
         btn.disabled = false;
@@ -2140,8 +2325,8 @@ async function desfazerAcao() {{
         }});
         const dados = await resp.json();
         if (resp.ok && dados.sucesso) {{
-            mostrarNotificacao(dados.mensagem);
-            setTimeout(() => location.reload(), 1000);
+            salvarFiltros();
+            location.reload();
         }} else {{
             alert(dados.erro || "Nenhuma ação recente para desfazer.");
         }}
@@ -2167,6 +2352,7 @@ async function reanalisarPasta() {{
         }});
         const dados = await resp.json();
         if (resp.ok && dados.sucesso) {{
+            salvarFiltros();
             location.reload();
         }} else {{
             alert("Erro ao reanalisar.");

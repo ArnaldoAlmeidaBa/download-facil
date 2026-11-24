@@ -9,9 +9,82 @@ Este arquivo preserva o contexto das decisões, alterações, problemas e próxi
 - **Painel:** `painel.html` com suporte a modo interativo (mover em 1 clique e desfazer)
 - **Persistência:** arquivos CSV em `logs/` (`decisoes.csv`, `movimentacoes.csv`)
 - **Modo operacional:** Dry-run por padrão; acionamento físico opcional via servidor local (`python orquestrador.py --servidor`)
-- **Qualidade:** 48 testes automatizados com `pytest` (última validação da EXP-02D.2: 100% de aprovação)
-- **Status:** Modularizado; preview de PDF e EXP-02D.2 homologados pelo usuário em 24/11/2026
+- **Qualidade:** 59 testes automatizados aprovados; validação complementar de artefatos aprovada
+- **Status:** EXP-02D.3 homologada e consolidada em commit local na branch de desenvolvimento; sem push
 
+## Sessão — EXP-02D.3 — Integridade e ciclo de vida dos arquivos
+
+### Objetivo
+
+Sincronizar o painel com as alterações físicas feitas pelo aplicativo e detectar mudanças externas nos arquivos autorizados, sem monitoramento contínuo.
+
+### Implementação homologada
+
+- Modelados estados operacionais para arquivos aguardando decisão, movimentados, ausentes/renomeados, alterados e substituídos, inclusive inconsistências após movimentação.
+- A sessão mantém os registros da análise em memória. Movimentar, desfazer e reanalisar atualiza o painel e os contadores sem depender de uma varredura completa após cada operação.
+- A reconciliação ocorre ao abrir o painel e antes de operações mutáveis; não foi adicionado watcher de filesystem.
+- Snapshots verificam caminho resolvido, tamanho, horário de modificação, dispositivo e identidade do arquivo. O PDF mantém autorização temporária após mover e ao desfazer.
+- Falhas de reversão preservam o histórico. Arquivos já existentes no caminho de origem não são sobrescritos; a reversão escolhe um nome alternativo.
+- Artefatos operacionais conhecidos são excluídos por caminhos resolvidos exatos. Arquivos legítimos com nomes parecidos permanecem no universo de análise.
+- A inicialização da homologação passa contexto explícito ao servidor, que exibe um banner identificador independente da porta.
+
+### Homologação humana
+
+O usuário confirmou:
+
+- Banner inequívoco do ambiente isolado e preservação dos previews de PNG, PDF, DOCX, XLSX e TXT.
+- Movimentação autorizada, atualização imediata de fichas/estados/contadores e funcionamento dos filtros por estado.
+- Reversão física com atualização automática do painel.
+- Bloqueio de movimentação após renomeação externa, identificação do estado ausente/renomeado e reconciliação por reanálise.
+- Proteção contra sobrescrita na reversão, com uso de sufixo `_1` e preservação dos dois arquivos.
+- Reanálise reconciliando seis arquivos físicos com seis fichas.
+
+### Validação complementar de exclusão de artefatos
+
+- Em diretório temporário isolado, foram colocados seis artefatos da aplicação dentro dos diretórios observados: `painel.html`, `decisoes.csv`, `movimentacoes.csv`, `perfil.json`, `src/config.py` e `Orquestrador.spec`.
+- Os seis continuaram fisicamente presentes após a análise e a reanálise, mas nenhum apareceu entre os registros analisados.
+- Sete arquivos legítimos com nomes iguais ou semelhantes em caminhos diferentes foram identificados em ambas as execuções, incluindo `config.py`, `painel.html`, `decisoes.csv`, `movimentacoes.csv`, `perfil.json` e `Orquestrador.spec`.
+- A verificação comparou caminhos absolutos resolvidos dos arquivos físicos com os caminhos registrados pela análise; resultados e invariância entre as duas execuções foram assertados no teste.
+- O ambiente permanente de homologação e seus seis arquivos não foram acessados ou modificados.
+
+### Validação automatizada
+
+- Suíte completa `pytest`: 59 testes aprovados.
+- `compileall` executado sem erros.
+- `git diff --check` sem erros; restaram apenas avisos do Git sobre conversão LF/CRLF.
+- Cobertura inclui estados após movimentação/reversão, falha e nova tentativa de Undo, colisão na origem, arquivos alterados/ausentes/renomeados/substituídos, exclusão precisa de artefatos, banner de homologação, reanálise e regressões das proteções anteriores.
+- Nenhum documento real, executável ou dependência foi usado ou alterado.
+- Nenhum commit ou push foi realizado. A consolidação aguarda autorização do usuário.
+
+### Riscos residuais e recomendação futura
+
+- A detecção usa metadados do sistema de arquivos, não hash criptográfico; alterações que preservem metadados podem não ser identificadas.
+- Continua existindo uma janela TOCTOU entre validar um caminho e operar nele. A fronteira não se destina a defender contra processos maliciosos executados pela mesma conta.
+- A reconciliação é pontual, ao abrir painel ou antes de ações. Um watcher contínuo não foi implementado; avaliá-lo em missão futura somente se a experiência exigir atualização em tempo real, considerando consumo de recursos, eventos perdidos e corridas.
+- Estados e histórico de Undo continuam em memória e não sobrevivem ao encerramento do processo.
+- A validação de empacotamento PyInstaller permanece pendente.
+
+### Roteiro de homologação humana
+
+Homologação concluída; os passos e resultados aprovados estão registrados acima. A validação complementar automatizada usou somente diretórios temporários.
+
+### Pendências para missões futuras — não implementadas
+
+- Avisar explicitamente quando a reversão usar nome alternativo e informar o nome restaurado.
+- Melhorar o estado vazio dos filtros e facilitar o acesso à reanálise de fichas desatualizadas.
+- Revisar a expressão “Destino sugerido” após movimentação concluída.
+- Distinguir visualmente registros conhecidos pelo painel de arquivos físicos ainda não analisados.
+- Não implementar monitoramento contínuo nesta missão: a diferença transitória entre cinco fichas e seis arquivos físicos foi resolvida por reanálise e não caracteriza, por si só, falha operacional.
+
+### Encerramento e consolidação
+
+- Homologação humana e validação complementar aprovadas em 24/11/2026.
+- Consolidação autorizada pelo usuário; commit local criado na branch `feature/download-facil-v0.2`.
+- Baseline `baseline-pre-v0.2` (`074fde0dd513d0c8c4456c1a86b32b7887aaf5f5`) verificado como ancestral do commit-base `020c4ac053d28a9c7813adf2154e9f0bc9daddb5`.
+- Dados operacionais, perfis locais e documentos de homologação permanecem fora do Git.
+- Sem push, geração de executável ou início da EXP-02D.4.
+
+Aguardar novas instruções.
 ## Sessão — 2026-11-24 — Homologação e encerramento da fronteira da API local (EXP-02D.2)
 
 ### Objetivo

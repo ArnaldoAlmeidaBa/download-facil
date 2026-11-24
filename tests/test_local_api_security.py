@@ -13,6 +13,7 @@ import pytest
 from pypdf import PdfWriter
 
 from src.actions.file_mover import limpar_historico
+from src.actions.file_mover import obter_historico_movimentacoes
 from src.document_access import (
     autorizar_arquivo,
     autorizar_documento,
@@ -27,8 +28,13 @@ from src.server import MAX_CORPO_HTTP_BYTES, OrquestradorRequestHandler
 @pytest.fixture
 def api(tmp_path, monkeypatch):
     import src.actions.file_mover as file_mover
+    import src.core as core
 
     monkeypatch.setattr(file_mover, "LOG_DIR", tmp_path / "logs")
+    core._SESSION_RECORDS = []
+    core._SESSION_PROFILE = None
+    core._SESSION_PANEL_FILE = None
+    core._SESSION_LOG_FILE = None
     limpar_documentos_autorizados()
     limpar_historico()
 
@@ -81,6 +87,10 @@ def api(tmp_path, monkeypatch):
     thread.join(timeout=5)
     limpar_documentos_autorizados()
     limpar_historico()
+    core._SESSION_RECORDS = []
+    core._SESSION_PROFILE = None
+    core._SESSION_PANEL_FILE = None
+    core._SESSION_LOG_FILE = None
 
 
 def requisitar(api, rota, body=None, headers=None, host=None):
@@ -245,6 +255,115 @@ def test_api_reanalise_legitima_e_painel_recebe_token_csrf(api, monkeypatch, tmp
     assert status == 200
     assert f'name="csrf-token" content="{api["token"]}"'.encode() in corpo
     assert api["server"].server_address[0] == "127.0.0.1"
+    api["server"].homologacao = True
+    status, _, corpo = requisitar(api, "/")
+    assert status == 200
+    assert b"AMBIENTE DE HOMOLOGACAO - SOMENTE DADOS FICTICIOS" in corpo
+    api["server"].homologacao = False
+
+
+def test_movimentacao_e_reversao_sincronizam_painel_sem_reanalisar(
+    api, monkeypatch, tmp_path
+):
+    import src.server as server_module
+    import src.core as core
+
+    painel = tmp_path / "painel.html"
+    log = tmp_path / "logs" / "decisoes.csv"
+    monkeypatch.setattr(server_module, "PAINEL_FILE", painel)
+    resultado = core.executar_orquestracao(
+        perfil=api["perfil"],
+        log_file=log,
+        painel_file=painel,
+        abrir_navegador=False,
+    )
+    registro = resultado["registros"][0]
+    destino_id = identificador_destino(api["destino"])
+
+    status, _, corpo = requisitar(
+        api,
+        "/api/mover",
+        payload_mover(api, registro["id_arquivo"], destino_id),
+        cabecalhos_validos(api),
+    )
+    resposta = json.loads(corpo)
+    assert status == 200
+    assert resposta["estado_operacional"] == "MOVIDO"
+    assert resposta["contadores"]["aguardando"] == 0
+    assert resposta["contadores"]["movimentados"] == 1
+    assert (api["destino"] / "documento.txt").exists()
+    assert "Movimentado" in painel.read_text(encoding="utf-8")
+    assert 'data-contagem-estado="AGUARDANDO_DECISAO_HUMANA">0' in painel.read_text(
+        encoding="utf-8"
+    )
+
+    status, _, corpo = requisitar(
+        api,
+        "/api/desfazer",
+        b"{}",
+        cabecalhos_validos(api),
+    )
+    resposta = json.loads(corpo)
+    assert status == 200
+    assert resposta["estado_operacional"] == "AGUARDANDO_DECISAO_HUMANA"
+    assert resposta["contadores"]["aguardando"] == 1
+    assert api["arquivo"].exists()
+    assert not (api["destino"] / "documento.txt").exists()
+    assert "Aguardando decisão" in painel.read_text(encoding="utf-8")
+
+
+def test_reversao_falha_preserva_historico_e_nao_sobrescreve(api):
+    status, _, _ = requisitar(
+        api, "/api/mover", payload_mover(api), cabecalhos_validos(api)
+    )
+    assert status == 200
+    caminho_movido = api["destino"] / "documento.txt"
+    caminho_movido.write_text("conteudo alterado", encoding="utf-8")
+
+    status, _, corpo = requisitar(
+        api, "/api/desfazer", b"{}", cabecalhos_validos(api)
+    )
+    assert status == 409
+    resposta = json.loads(corpo)
+    assert "histórico foi preservado" in resposta["erro"]
+    assert obter_historico_movimentacoes()
+    assert caminho_movido.exists()
+    assert not api["arquivo"].exists()
+
+
+def test_reanalise_regenera_fichas_com_arquivos_atuais(api, monkeypatch, tmp_path):
+    import src.server as server_module
+    import src.core as core
+
+    painel = tmp_path / "painel-reanalise.html"
+    monkeypatch.setattr(server_module, "PAINEL_FILE", painel)
+    monkeypatch.setattr(
+        server_module,
+        "executar_orquestracao",
+        lambda abrir_navegador=False: core.executar_orquestracao(
+            perfil=api["perfil"],
+            log_file=tmp_path / "logs" / "decisoes.csv",
+            painel_file=painel,
+            abrir_navegador=abrir_navegador,
+        ),
+    )
+    resultado = core.executar_orquestracao(
+        perfil=api["perfil"],
+        log_file=tmp_path / "logs" / "decisoes.csv",
+        painel_file=painel,
+        abrir_navegador=False,
+    )
+    assert resultado["total_analisados"] == 1
+
+    api["arquivo"].unlink()
+    (api["entrada"] / "novo.txt").write_text("novo documento", encoding="utf-8")
+    status, _, corpo = requisitar(
+        api, "/api/reanalisar", b"{}", cabecalhos_validos(api)
+    )
+    assert status == 200
+    assert json.loads(corpo)["total"] == 1
+    assert "novo.txt" in painel.read_text(encoding="utf-8")
+    assert "documento.txt" not in painel.read_text(encoding="utf-8")
 
 
 def test_api_pdf_autorizado_preserva_preview_e_rejeita_id_invalido(api):
@@ -274,6 +393,38 @@ def test_arquivo_modificado_apos_analise_nao_e_movido(api):
         cabecalhos_validos(api),
     )
     assert status == 409
+    assert api["arquivo"].exists()
+    assert not (api["destino"] / "documento.txt").exists()
+
+
+def test_arquivo_alterado_atualiza_estado_e_bloqueia_movimentacao(
+    api, monkeypatch, tmp_path
+):
+    import src.server as server_module
+    import src.core as core
+
+    painel = tmp_path / "painel-alterado.html"
+    monkeypatch.setattr(server_module, "PAINEL_FILE", painel)
+    core.executar_orquestracao(
+        perfil=api["perfil"],
+        log_file=tmp_path / "logs" / "decisoes.csv",
+        painel_file=painel,
+        abrir_navegador=False,
+    )
+    api["arquivo"].write_text("conteudo externo modificado", encoding="utf-8")
+
+    registro = core._SESSION_RECORDS[0]
+    status, _, corpo = requisitar(
+        api,
+        "/api/mover",
+        payload_mover(api, registro["id_arquivo"], identificador_destino(api["destino"])),
+        cabecalhos_validos(api),
+    )
+    resposta = json.loads(corpo)
+    assert status == 409
+    assert resposta["estado_operacional"] == "ALTERADO_EXTERNAMENTE"
+    assert resposta["contadores"]["aguardando"] == 0
+    assert "Alterado externamente" in painel.read_text(encoding="utf-8")
     assert api["arquivo"].exists()
     assert not (api["destino"] / "documento.txt").exists()
 

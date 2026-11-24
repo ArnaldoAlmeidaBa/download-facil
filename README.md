@@ -9,7 +9,7 @@ Sistema inteligente para analisar arquivos, identificar seu tipo documental, sug
 - **Modos operacionais:**
   1. **Análise / Dry-Run (Padrão):** Analisa e registra sugestões no CSV e gera o painel visual, sem mover nenhum arquivo.
   2. **Interativo / Servidor Local:** Inicia um microservidor HTTP local que conecta o painel no navegador com botões para mover em 1 clique e desfazer movimentações.
-- **Testes Automatizados:** 48 testes unitários e de integração cobrindo regras, extratores, segurança da API local e geração de HTML (resultado de 24/11/2026).
+- **Testes Automatizados:** 59 testes unitários e de integração aprovados; EXP-02D.3 homologada pelo usuário, aguardando autorização para consolidação.
 
 ## Funcionalidades
 
@@ -18,6 +18,7 @@ Sistema inteligente para analisar arquivos, identificar seu tipo documental, sug
 - **Cálculo de confiança:** Níveis ALTA, MÉDIA e BAIXA, com rastreio de evidências e identificação de conflitos.
 - **Território documental:** Sugestão segura de pastas governadas por contexto.
 - **Painel interativo:** [`painel.html`](painel.html) moderno, com filtros, modal de visualização e botões de ação física direta.
+- **Estado operacional:** O painel reconcilia registros com snapshots dos arquivos ao ser aberto e antes de operações. Movimentações e reversões atualizam estados e contadores sem reanálise completa.
 - **Movimentação segura:** Nunca sobrescreve arquivos (resolução automática de colisão com `_1`, `_2`), registra logs de movimentação e permite desfazer (*Undo*).
 - **Auditoria contínua:** Registros estruturados em CSV na pasta [`logs/`](logs/).
 
@@ -88,7 +89,7 @@ Os documentos fictícios, perfil, logs e painel são mantidos fora do Git em `C:
 - `perfil-homologacao.json`: perfil exclusivo, validado pelo lançador antes de cada execução.
 - `logs\` e `artefatos\`: logs e painel gerados pelo aplicativo.
 
-Use somente os arquivos fictícios desse ambiente; não copie documentos reais para a pasta de entrada. O painel ainda não possui uma identificação visual inequívoca de homologação: antes de testar, confirme o endereço `localhost:18080` e a mensagem do lançador no terminal. Uma identificação visual explícita permanece pendente.
+Use somente os arquivos fictícios desse ambiente; não copie documentos reais para a pasta de entrada. O lançador sinaliza o contexto de homologação ao servidor, que exibe o banner “AMBIENTE DE HOMOLOGACAO - SOMENTE DADOS FICTICIOS”, independentemente da porta escolhida. A EXP-02D.3 foi homologada pelo usuário e aguarda autorização para consolidação.
 
 ### 4. Execução dos Testes Automatizados
 ```bash

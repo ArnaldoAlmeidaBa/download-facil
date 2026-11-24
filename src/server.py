@@ -6,6 +6,7 @@ import json
 import re
 import secrets
 import webbrowser
+from threading import RLock
 from urllib.parse import urlparse
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
@@ -16,21 +17,32 @@ from src.actions.file_mover import (
     desfazer_ultima_movimentacao,
     obter_historico_movimentacoes,
 )
-from src.core import executar_orquestracao
+from src.core import (
+    atualizar_estado_externo,
+    executar_orquestracao,
+    marcar_arquivo_movido,
+    marcar_arquivo_restaurado,
+    reconciliar_estado_operacional,
+)
 from src.document_access import (
     autorizar_destino,
     caminho_destino_autorizado,
     caminho_fonte_autorizado,
+    classificar_arquivo_autorizado,
     obter_arquivo_autorizado,
     obter_arquivo_registrado,
     obter_destino_registrado,
     obter_documento_autorizado,
+    restaurar_autorizacao_na_origem,
+    SNAPSHOT_VALID,
+    transferir_autorizacao_para_destino,
     validar_destino,
 )
 
 MAX_CORPO_HTTP_BYTES = 16 * 1024
 HOSTS_LOOPBACK = {"localhost", "127.0.0.1"}
 IDENTIFICADOR_RE = re.compile(r"[A-Za-z0-9_-]{43}\Z")
+_OPERATIONS_LOCK = RLock()
 
 
 class OrquestradorRequestHandler(BaseHTTPRequestHandler):
@@ -206,6 +218,9 @@ class OrquestradorRequestHandler(BaseHTTPRequestHandler):
             self._responder_texto(404, "Documento não autorizado.")
             return
 
+        estado_snapshot = classificar_arquivo_autorizado(identificador)
+        if estado_snapshot != SNAPSHOT_VALID:
+            atualizar_estado_externo(identificador, estado_snapshot)
         arquivo = obter_documento_autorizado(identificador)
         if arquivo is None:
             self._responder_texto(404, "Documento não autorizado.")
@@ -293,10 +308,28 @@ class OrquestradorRequestHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
 
         if parsed.path in {"/", "/index.html", "/painel.html"}:
+            reconciliar_estado_operacional()
             if not PAINEL_FILE.exists():
                 executar_orquestracao(abrir_navegador=False)
 
             conteudo = PAINEL_FILE.read_bytes()
+            if getattr(self.server, "homologacao", False):
+                marcador_corpo = b"<body>"
+                if marcador_corpo not in conteudo:
+                    self._responder_texto(500, "O painel não possui a área principal esperada.")
+                    return
+                banner = (
+                    b'<div role="status" id="aviso-homologacao" '
+                    b'style="position:sticky;top:0;z-index:10000;padding:10px;'
+                    b'background:#7a271a;color:#fff;text-align:center;'
+                    b'font-weight:700;letter-spacing:.04em">'
+                    b'AMBIENTE DE HOMOLOGACAO - SOMENTE DADOS FICTICIOS</div>'
+                )
+                conteudo = conteudo.replace(
+                    marcador_corpo,
+                    marcador_corpo + banner,
+                    1,
+                )
             token = getattr(self.server, "csrf_token", "")
             meta = f'<meta name="csrf-token" content="{token}">'.encode("ascii")
             marcador = b"</head>"
@@ -337,6 +370,10 @@ class OrquestradorRequestHandler(BaseHTTPRequestHandler):
         self.send_error(404, "Recurso não encontrado")
 
     def do_POST(self):
+        with _OPERATIONS_LOCK:
+            self._processar_post()
+
+    def _processar_post(self):
         erro_validacao = self._validar_requisicao_mutavel()
         if erro_validacao is not None:
             return
@@ -345,6 +382,8 @@ class OrquestradorRequestHandler(BaseHTTPRequestHandler):
         payload = self._ler_json()
         if payload is None:
             return
+        if parsed.path in {"/api/mover", "/api/desfazer", "/api/reanalisar"}:
+            reconciliar_estado_operacional()
 
         if parsed.path == "/api/mover":
             arquivo_id = payload.get("arquivo_id")
@@ -368,7 +407,13 @@ class OrquestradorRequestHandler(BaseHTTPRequestHandler):
                 return
             arquivo = obter_arquivo_autorizado(arquivo_id)
             if arquivo is None or not caminho_fonte_autorizado(arquivo.path):
-                self._responder_json(409, {"sucesso": False, "erro": "O arquivo mudou desde a análise."})
+                estado_snapshot = classificar_arquivo_autorizado(arquivo_id)
+                estado = atualizar_estado_externo(arquivo_id, estado_snapshot)
+                self._responder_json(409, {
+                    "sucesso": False,
+                    "erro": "O arquivo mudou desde a análise.",
+                    **(estado or {}),
+                })
                 return
 
             destino_registrado = obter_destino_registrado(destino_id)
@@ -385,16 +430,32 @@ class OrquestradorRequestHandler(BaseHTTPRequestHandler):
                 destino.path,
                 arquivo_autorizado=arquivo,
                 destino_autorizado=destino,
+                id_autorizacao=arquivo_id,
             )
             if not resultado.get("sucesso"):
+                estado_snapshot = classificar_arquivo_autorizado(arquivo_id)
+                estado = atualizar_estado_externo(arquivo_id, estado_snapshot)
                 self._responder_json(409, {
                     "sucesso": False,
                     "erro": "Não foi possível mover o arquivo. Reanalise e tente novamente.",
+                    **(estado or {}),
                 })
                 return
+            autorizacao_transferida = transferir_autorizacao_para_destino(
+                arquivo_id,
+                destino_id,
+                Path(resultado["destino"]),
+            )
+            estado = marcar_arquivo_movido(
+                arquivo_id,
+                Path(resultado["destino"]),
+                autorizacao_transferida,
+            )
             self._responder_json(200, {
                 "sucesso": True,
                 "nome_final": resultado["nome_final"],
+                **(estado or {}),
+                **({"aviso": resultado["aviso"]} if resultado.get("aviso") else {}),
             })
             return
 
@@ -419,14 +480,36 @@ class OrquestradorRequestHandler(BaseHTTPRequestHandler):
                     return
             resultado = desfazer_ultima_movimentacao()
             if not resultado.get("sucesso"):
+                erro = resultado.get("erro", "")
+                if "não encontrado" in erro.lower():
+                    mensagem = "O arquivo movido não está no destino; o histórico foi preservado."
+                elif "mudou desde" in erro.lower():
+                    mensagem = "O arquivo foi alterado; a reversão foi interrompida e o histórico foi preservado."
+                else:
+                    mensagem = "A reversão falhou; o histórico foi preservado para nova tentativa."
                 self._responder_json(409, {
                     "sucesso": False,
-                    "erro": "Não foi possível desfazer a última movimentação.",
+                    "erro": mensagem,
+                    **({"aviso": resultado["aviso"]} if resultado.get("aviso") else {}),
                 })
                 return
+            arquivo_id = resultado.get("id_autorizacao")
+            caminho_restaurado = Path(resultado["arquivo_restaurado"])
+            autorizacao_restaurada = bool(
+                arquivo_id
+                and restaurar_autorizacao_na_origem(arquivo_id, caminho_restaurado)
+            )
+            estado = marcar_arquivo_restaurado(
+                arquivo_id,
+                caminho_restaurado,
+                autorizacao_restaurada,
+                Path(resultado["origem_original"]),
+            )
             self._responder_json(200, {
                 "sucesso": True,
                 "mensagem": "Arquivo restaurado para a pasta original.",
+                **(estado or {}),
+                **({"aviso": resultado["aviso"]} if resultado.get("aviso") else {}),
             })
             return
 
@@ -447,7 +530,11 @@ class OrquestradorRequestHandler(BaseHTTPRequestHandler):
         self.send_error(404, "Endpoint não encontrado")
 
 
-def iniciar_servidor(porta: int = 8080, abrir_navegador: bool = True):
+def iniciar_servidor(
+    porta: int = 8080,
+    abrir_navegador: bool = True,
+    homologacao: bool = False,
+):
     """Inicia o servidor HTTP do painel interativo."""
     endereco = ("127.0.0.1", porta)
     try:
@@ -458,6 +545,7 @@ def iniciar_servidor(porta: int = 8080, abrir_navegador: bool = True):
         endereco = ("127.0.0.1", porta)
         servidor = ThreadingHTTPServer(endereco, OrquestradorRequestHandler)
     servidor.csrf_token = secrets.token_urlsafe(32)
+    servidor.homologacao = homologacao
 
     url = f"http://localhost:{porta}/"
     print("\n" + "=" * 60)

@@ -6,8 +6,19 @@ import urllib.request
 
 from pypdf import PdfWriter
 
+from src.actions.file_mover import (
+    desfazer_ultima_movimentacao,
+    limpar_historico,
+    mover_arquivo_seguro,
+)
 from src.document_access import (
+    autorizar_destino,
     autorizar_documento,
+    obter_arquivo_autorizado,
+    restaurar_autorizacao_na_origem,
+    transferir_autorizacao_para_destino,
+    identificador_destino,
+    inicializar_autorizacoes,
     limpar_documentos_autorizados,
 )
 from src.readers import ler_conteudo_textual
@@ -145,6 +156,67 @@ def test_servidor_rejeita_pdf_invalido_protegido_e_inexistente(tmp_path):
         servidor.server_close()
         thread.join(timeout=5)
         limpar_documentos_autorizados()
+
+
+def test_preview_pdf_permanece_autorizado_apos_mover_e_desfazer(tmp_path):
+    limpar_documentos_autorizados()
+    limpar_historico()
+    entrada = tmp_path / "entrada"
+    entrada.mkdir()
+    destino = tmp_path / "destino"
+    destino.mkdir()
+    pdf = entrada / "relatorio.pdf"
+    criar_pdf(pdf, paginas=2)
+    perfil = {
+        "pastas_entrada": [{"caminho": str(entrada), "monitorar": True}],
+        "territorio_documental": [{
+            "caminho": str(destino),
+            "papel": "DESTINO",
+            "pode_receber_arquivos": True,
+        }],
+    }
+    inicializar_autorizacoes(perfil)
+    arquivo_id = autorizar_documento(pdf)
+    destino_id = identificador_destino(destino)
+    arquivo_autorizado = obter_arquivo_autorizado(arquivo_id)
+    destino_autorizado = autorizar_destino(destino_id)
+    servidor, thread = iniciar_servidor()
+    base = f"http://127.0.0.1:{servidor.server_port}"
+
+    try:
+        resultado = mover_arquivo_seguro(
+            pdf,
+            destino,
+            log_dir=tmp_path / "logs",
+            arquivo_autorizado=arquivo_autorizado,
+            destino_autorizado=destino_autorizado,
+            id_autorizacao=arquivo_id,
+        )
+        assert resultado["sucesso"] is True
+        assert transferir_autorizacao_para_destino(
+            arquivo_id,
+            destino_id,
+            Path(resultado["destino"]),
+        )
+        status, _, corpo = requisitar(f"{base}/api/documento/{arquivo_id}")
+        assert status == 200
+        assert corpo.startswith(b"%PDF")
+
+        reversao = desfazer_ultima_movimentacao(log_dir=tmp_path / "logs")
+        assert reversao["sucesso"] is True, reversao
+        assert restaurar_autorizacao_na_origem(
+            arquivo_id,
+            Path(reversao["arquivo_restaurado"]),
+        )
+        status, _, corpo = requisitar(f"{base}/api/documento/{arquivo_id}")
+        assert status == 200
+        assert corpo.startswith(b"%PDF")
+    finally:
+        servidor.shutdown()
+        servidor.server_close()
+        thread.join(timeout=5)
+        limpar_documentos_autorizados()
+        limpar_historico()
 
 
 def test_previews_imagem_audio_e_video_continuam_funcionando(tmp_path):

@@ -153,7 +153,8 @@ sequenceDiagram
         Action->>FS: Move o arquivo fisicamente
         Action->>Log: Registra operação física em logs/movimentacoes.csv
         Action-->>Server: Retorna status de sucesso e nome final
-        Server-->>User: Atualiza visual da ficha e exibe Toast
+        Server->>Core: Atualiza autorização, estado operacional e painel
+        Server-->>User: Recarrega painel com estado e contadores sincronizados
     end
 
     opt Reversão de Ação (Desfazer)
@@ -162,7 +163,8 @@ sequenceDiagram
         Server->>Action: desfazer_ultima_movimentacao()
         Action->>FS: Restaura arquivo para pasta original
         Action-->>Server: Retorna confirmação de restauração
-        Server-->>User: Recarrega painel com estado anterior
+        Server->>Core: Reautoriza e atualiza a ficha restaurada
+        Server-->>User: Recarrega painel com estado e contadores sincronizados
     end
 ```
 
@@ -210,10 +212,17 @@ O servidor se vincula exclusivamente a `127.0.0.1`. As requisições precisam us
 ```json
 {
   "sucesso": true,
-  "nome_final": "Oficio_01.pdf"
+  "nome_final": "Oficio_01.pdf",
+  "estado_operacional": "MOVIDO",
+  "contadores": {
+    "total": 64,
+    "aguardando": 63,
+    "movimentados": 1,
+    "inconsistentes": 0
+  }
 }
 ```
-* **Respostas de erro:** `400` para corpo ou identificadores inválidos, `403/404` para IDs não autorizados, `409` para arquivo/destino alterado ou falha da operação e `413` para corpo acima do limite.
+* **Respostas de erro:** `400` para corpo ou identificadores inválidos, `403/404` para IDs não autorizados, `409` para arquivo/destino alterado ou falha da operação e `413` para corpo acima do limite. Quando o snapshot do arquivo mudou, a resposta inclui seu novo estado e os contadores atuais.
 ```json
 {
   "sucesso": false,
@@ -228,9 +237,17 @@ O servidor se vincula exclusivamente a `127.0.0.1`. As requisições precisam us
 ```json
 {
   "sucesso": true,
-  "mensagem": "Arquivo restaurado para a pasta original."
+  "mensagem": "Arquivo restaurado para a pasta original.",
+  "estado_operacional": "AGUARDANDO_DECISAO_HUMANA",
+  "contadores": {
+    "total": 64,
+    "aguardando": 64,
+    "movimentados": 0,
+    "inconsistentes": 0
+  }
 }
 ```
+Se a reversão falhar, o histórico da operação permanece disponível para nova tentativa. Se o caminho original estiver ocupado, a restauração usa um nome alternativo, sem sobrescrever o arquivo existente.
 
 #### `POST /api/reanalisar`
 * **Descrição:** Dispara uma nova varredura completa da pasta de entrada.
@@ -248,6 +265,26 @@ O servidor se vincula exclusivamente a `127.0.0.1`. As requisições precisam us
 * **Resposta:** `application/pdf`; IDs inválidos/não autorizados retornam `404`, PDFs inválidos `422`, PDFs protegidos `423` e documentos inacessíveis `403`.
 
 Os IDs de arquivos e destinos existem apenas em memória durante a análise. Arquivos de origem precisam permanecer sob uma pasta monitorada; destinos precisam pertencer ao território documental configurado. O servidor confere caminhos resolvidos e metadados (incluindo tamanho, modificação e identidade do arquivo/diretório) antes de operar. Essa verificação reduz substituições e redirecionamentos por links, mas não elimina a janela residual entre validar e acessar o sistema de arquivos.
+
+### 4.2. Ciclo de vida e reconciliação operacional
+
+Cada ficha possui um estado operacional independente do resultado da análise:
+
+| Estado | Significado |
+| :--- | :--- |
+| `AGUARDANDO_DECISAO_HUMANA` | Arquivo válido aguardando ação do usuário. |
+| `MOVIDO` | Movimentação concluída e autorização do arquivo atualizada para o destino autorizado. |
+| `AUSENTE_OU_RENOMEADO` | O caminho autorizado deixou de apontar para o arquivo analisado. |
+| `ALTERADO_EXTERNAMENTE` | O mesmo arquivo apresenta tamanho ou horário de modificação diferente do snapshot. |
+| `SUBSTITUIDO_EXTERNAMENTE` | O caminho ou a identidade do arquivo mudou. |
+| `MOVIDO_AUSENTE`, `MOVIDO_ALTERADO`, `MOVIDO_SUBSTITUIDO` | Inconsistências externas identificadas após movimentação. |
+| `MOVIDO_SEM_PREVIEW` | A movimentação ocorreu, mas não foi possível transferir a autorização de preview com segurança. |
+
+O painel é recomposto em memória após movimentar ou desfazer. A reconciliação dos snapshots ocorre ao abrir o painel e antes de operações mutáveis; não há monitoramento contínuo do filesystem. O botão de reanálise continua disponível para reconstruir a sessão a partir dos arquivos presentes.
+
+Artefatos da aplicação (painel, logs e arquivos de configuração identificados) são retirados do universo de análise por comparação de caminhos resolvidos exatos. O filtro não exclui arquivos apenas por terem o mesmo nome-base.
+
+O lançador de homologação informa o contexto por argumento explícito ao servidor. O banner não depende da porta HTTP; alterar ou escolher outra porta não transforma uma execução normal em ambiente de homologação.
 
 ---
 
@@ -285,7 +322,7 @@ $$\text{Proporção} = \frac{|S_e|}{|S_t|}$$
 A integridade do software é garantida por uma suíte de testes unitários e de integração implementada com `pytest`:
 * **Comando de Execução:** `pytest`
 * **Tempo de Execução:** $\approx 2.8$ segundos (execução EXP-02D.2)
-* **Total de Testes:** 48 casos aprovados (execução EXP-02D.2)
+* **Total de Testes:** 59 casos aprovados; EXP-02D.3 homologada pelo usuário e aguardando autorização para consolidação
 * **Cobertura Funcional:**
   1. *Normalização e Limpeza Textual* (`test_normalizer.py`)
   2. *Motor de Classificação e Detecção de Conflitos* (`test_classifiers.py`)
@@ -295,6 +332,7 @@ A integridade do software é garantida por uma suíte de testes unitários e de 
   6. *Movimentação Segura, Anti-Sobrescrita e Desfazer* (`test_file_mover.py`)
   7. *Geração e Renderização do Painel HTML* (`test_dashboard.py`)
   8. *Fronteira de Segurança da API Local* (`test_local_api_security.py`)
+  9. *Estados do ciclo de vida e exclusão precisa de artefatos* (`test_core_lifecycle.py`)
 
 ---
 

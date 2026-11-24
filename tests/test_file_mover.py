@@ -80,3 +80,94 @@ def test_desfazer_preserva_historico_quando_arquivo_movido_foi_alterado(tmp_path
     assert reversao["sucesso"] is False
     assert len(obter_historico_movimentacoes()) == 1
     assert not arquivo.exists()
+
+
+def test_desfazer_falha_transitoria_preserva_historico_para_nova_tentativa(
+    tmp_path, monkeypatch
+):
+    import src.actions.file_mover as file_mover
+
+    limpar_historico()
+    origem = tmp_path / "downloads" / "documento.txt"
+    origem.parent.mkdir()
+    origem.write_text("conteudo", encoding="utf-8")
+    destino = tmp_path / "revisar"
+    resultado = mover_arquivo_seguro(
+        origem,
+        destino,
+        log_dir=tmp_path / "logs",
+    )
+    assert resultado["sucesso"] is True
+
+    mover_original = file_mover.shutil.move
+    falhar_uma_vez = True
+
+    def mover_com_falha_transitoria(*args, **kwargs):
+        nonlocal falhar_uma_vez
+        if falhar_uma_vez:
+            falhar_uma_vez = False
+            raise PermissionError("bloqueio temporário de fixture")
+        return mover_original(*args, **kwargs)
+
+    monkeypatch.setattr(file_mover.shutil, "move", mover_com_falha_transitoria)
+    reversao = desfazer_ultima_movimentacao(log_dir=tmp_path / "logs")
+    assert reversao["sucesso"] is False
+    assert len(obter_historico_movimentacoes()) == 1
+    assert (destino / "documento.txt").exists()
+
+    reversao = desfazer_ultima_movimentacao(log_dir=tmp_path / "logs")
+    assert reversao["sucesso"] is True
+    assert not obter_historico_movimentacoes()
+    assert origem.read_text(encoding="utf-8") == "conteudo"
+
+
+def test_reversao_nao_sobrescreve_arquivo_existente_na_origem(tmp_path):
+    limpar_historico()
+    origem = tmp_path / "downloads"
+    origem.mkdir()
+    arquivo = origem / "documento.txt"
+    arquivo.write_text("original", encoding="utf-8")
+    destino = tmp_path / "revisar"
+
+    resultado = mover_arquivo_seguro(
+        arquivo,
+        destino,
+        log_dir=tmp_path / "logs",
+    )
+    assert resultado["sucesso"] is True
+    arquivo.write_text("outro arquivo criado externamente", encoding="utf-8")
+
+    reversao = desfazer_ultima_movimentacao(log_dir=tmp_path / "logs")
+    assert reversao["sucesso"] is True
+    assert arquivo.read_text(encoding="utf-8") == "outro arquivo criado externamente"
+    assert (origem / "documento_1.txt").read_text(encoding="utf-8") == "original"
+
+
+def test_falha_de_auditoria_nao_apresenta_movimentacao_fisica_como_falha(
+    tmp_path, monkeypatch
+):
+    import src.actions.file_mover as file_mover
+
+    limpar_historico()
+    origem = tmp_path / "downloads" / "documento.txt"
+    origem.parent.mkdir()
+    origem.write_text("conteudo", encoding="utf-8")
+
+    def falhar_auditoria(*args, **kwargs):
+        raise OSError("fixture")
+
+    monkeypatch.setattr(
+        file_mover,
+        "registrar_movimentacao_log",
+        falhar_auditoria,
+    )
+
+    resultado = mover_arquivo_seguro(
+        origem,
+        tmp_path / "revisar",
+        log_dir=tmp_path / "logs",
+    )
+    assert resultado["sucesso"] is True
+    assert "auditoria" in resultado["aviso"].lower()
+    assert not origem.exists()
+    assert len(obter_historico_movimentacoes()) == 1

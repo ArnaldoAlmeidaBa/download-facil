@@ -155,7 +155,11 @@ def main() -> None:
     print(f"Destinos autorizados: {DESTINATION_REVIEW} ; {DESTINATION_ARCHIVE}")
     print(f"Logs e painel: {ENVIRONMENT}")
     print("O painel será aberto no navegador. Encerre o servidor com Ctrl+C.")
-    server.iniciar_servidor(porta=args.porta, abrir_navegador=not args.sem_navegador)
+    server.iniciar_servidor(
+        porta=args.porta,
+        abrir_navegador=not args.sem_navegador,
+        homologacao=True,
+    )
 
 
 if __name__ == "__main__":
