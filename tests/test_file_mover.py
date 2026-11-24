@@ -4,6 +4,7 @@ from src.actions.file_mover import (
     desfazer_ultima_movimentacao,
     gerar_caminho_sem_colisao,
     limpar_historico,
+    obter_historico_movimentacoes,
 )
 
 
@@ -61,3 +62,21 @@ def test_mover_arquivo_inexistente(tmp_path):
     res = mover_arquivo_seguro(arquivo_fantasma, destino_dir, log_dir=tmp_path / "logs")
     assert res["sucesso"] is False
     assert "não encontrado" in res["erro"]
+
+
+def test_desfazer_preserva_historico_quando_arquivo_movido_foi_alterado(tmp_path):
+    limpar_historico()
+    origem = tmp_path / "downloads"
+    destino = tmp_path / "revisar"
+    origem.mkdir()
+    arquivo = origem / "documento.txt"
+    arquivo.write_text("original", encoding="utf-8")
+
+    resultado = mover_arquivo_seguro(arquivo, destino, log_dir=tmp_path / "logs")
+    assert resultado["sucesso"] is True
+    (destino / "documento.txt").write_text("substituido", encoding="utf-8")
+
+    reversao = desfazer_ultima_movimentacao(log_dir=tmp_path / "logs")
+    assert reversao["sucesso"] is False
+    assert len(obter_historico_movimentacoes()) == 1
+    assert not arquivo.exists()

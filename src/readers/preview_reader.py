@@ -69,6 +69,12 @@ def preparar_preview(arquivo: Path, conteudo: str, estado_leitura: str) -> dict:
             return {"tipo": "mensagem", "url": "", "conteudo": mensagem}
 
         identificador = autorizar_documento(arquivo)
+        if identificador is None:
+            return {
+                "tipo": "mensagem",
+                "url": "",
+                "conteudo": "Este PDF não pertence a uma pasta autorizada nesta sessão.",
+            }
         return {
             "tipo": "pdf",
             "url": f"/api/documento/{identificador}",

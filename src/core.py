@@ -33,6 +33,7 @@ from src.rules import (
 )
 from src.logging import preparar_log, registrar_decisao
 from src.dashboard import gerar_painel_html
+from src.document_access import autorizar_arquivo, inicializar_autorizacoes
 
 
 def analisar_arquivo(arquivo: Path, perfil: dict = None) -> dict:
@@ -43,6 +44,7 @@ def analisar_arquivo(arquivo: Path, perfil: dict = None) -> dict:
     territorio = perfil.get("territorio_documental", [])
     estatisticas = arquivo.stat()
     tipo_tecnico = classificar_tipo(arquivo)
+    identificador_arquivo = autorizar_arquivo(arquivo)
     data_modificacao = datetime.fromtimestamp(estatisticas.st_mtime)
 
     if tipo_tecnico == "IGNORAR":
@@ -50,6 +52,7 @@ def analisar_arquivo(arquivo: Path, perfil: dict = None) -> dict:
             "arquivo": arquivo.name,
             "caminho": str(arquivo),
             "extensao": arquivo.suffix.lower(),
+            "id_arquivo": identificador_arquivo,
             "tipo_tecnico": tipo_tecnico,
             "tipo_arquivo": rotulo_tipo_arquivo(tipo_tecnico, arquivo.suffix),
             "tamanho": formatar_tamanho(estatisticas.st_size),
@@ -112,6 +115,7 @@ def analisar_arquivo(arquivo: Path, perfil: dict = None) -> dict:
         "arquivo": arquivo.name,
         "caminho": str(arquivo),
         "extensao": arquivo.suffix.lower(),
+        "id_arquivo": identificador_arquivo,
         "tipo_tecnico": tipo_tecnico,
         "tipo_arquivo": rotulo_tipo_arquivo(tipo_tecnico, arquivo.suffix),
         "tamanho": formatar_tamanho(estatisticas.st_size),
@@ -147,6 +151,8 @@ def executar_orquestracao(
     """Executa a triagem completa em todas as pastas de entrada ativas."""
     if perfil is None:
         perfil = carregar_perfil()
+
+    inicializar_autorizacoes(perfil)
 
     if log_file is None:
         log_file = LOG_FILE

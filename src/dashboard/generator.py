@@ -3,6 +3,7 @@ from pathlib import Path
 from datetime import datetime
 from html import escape
 from src.config import PAINEL_FILE, rotulo, carregar_perfil
+from src.document_access import identificador_destino
 from src.rules.normalizer import normalizar
 
 def classe_confianca(
@@ -314,13 +315,21 @@ def gerar_painel_html(
         )
 
         revisar_padrao = str(Path.home() / "Documents" / "Revisar")
-        if registro.get("destino_caminho"):
+        destino_acao = registro.get("destino_caminho") or revisar_padrao
+        id_arquivo = registro.get("id_arquivo")
+        id_destino = identificador_destino(destino_acao)
+        if id_arquivo and id_destino:
+            classe_botao = (
+                "btn-acao-mover"
+                if registro.get("destino_caminho")
+                else "btn-acao-revisar"
+            )
             btn_acao_html = f"""
                     <button
                         type="button"
-                        class="btn-acao-mover"
-                        data-origem="{caminho}"
-                        data-destino="{escape(registro['destino_caminho'])}"
+                        class="{classe_botao}"
+                        data-arquivo-id="{escape(id_arquivo)}"
+                        data-destino-id="{escape(id_destino)}"
                         onclick="moverArquivo(this)"
                     >
                         📁 Mover para {destino}
@@ -331,11 +340,10 @@ def gerar_painel_html(
                     <button
                         type="button"
                         class="btn-acao-revisar"
-                        data-origem="{caminho}"
-                        data-destino="{escape(revisar_padrao)}"
-                        onclick="moverArquivo(this)"
+                        disabled
+                        title="Arquivo ou destino fora da autorização atual."
                     >
-                        📂 Mover para Revisar
+                        📂 Mover não disponível
                     </button>
             """
 
@@ -2076,10 +2084,15 @@ document.addEventListener(
     }}
 );
 
+function obterTokenCSRF() {{
+    const meta = document.querySelector('meta[name="csrf-token"]');
+    return meta ? meta.content : "";
+}}
+
 async function moverArquivo(btn) {{
-    const origem = btn.getAttribute("data-origem");
-    const destino = btn.getAttribute("data-destino");
-    if (!origem || !destino) return;
+    const arquivoId = btn.getAttribute("data-arquivo-id");
+    const destinoId = btn.getAttribute("data-destino-id");
+    if (!arquivoId || !destinoId) return;
 
     const textoOriginal = btn.innerText;
     btn.disabled = true;
@@ -2088,11 +2101,14 @@ async function moverArquivo(btn) {{
     try {{
         const resp = await fetch("/api/mover", {{
             method: "POST",
-            headers: {{"Content-Type": "application/json"}},
-            body: JSON.stringify({{origem: origem, destino: destino}})
+            headers: {{
+                "Content-Type": "application/json",
+                "X-CSRF-Token": obterTokenCSRF()
+            }},
+            body: JSON.stringify({{arquivo_id: arquivoId, destino_id: destinoId}})
         }});
         const dados = await resp.json();
-        if (dados.sucesso) {{
+        if (resp.ok && dados.sucesso) {{
             btn.innerText = "✓ Movido com Sucesso";
             btn.className = "btn-acao-sucesso";
             const ficha = btn.closest(".ficha");
@@ -2114,9 +2130,16 @@ async function moverArquivo(btn) {{
 
 async function desfazerAcao() {{
     try {{
-        const resp = await fetch("/api/desfazer", {{ method: "POST" }});
+        const resp = await fetch("/api/desfazer", {{
+            method: "POST",
+            headers: {{
+                "Content-Type": "application/json",
+                "X-CSRF-Token": obterTokenCSRF()
+            }},
+            body: JSON.stringify({{}})
+        }});
         const dados = await resp.json();
-        if (dados.sucesso) {{
+        if (resp.ok && dados.sucesso) {{
             mostrarNotificacao(dados.mensagem);
             setTimeout(() => location.reload(), 1000);
         }} else {{
@@ -2134,9 +2157,16 @@ async function reanalisarPasta() {{
         btn.innerText = "Analisando...";
     }}
     try {{
-        const resp = await fetch("/api/reanalisar", {{ method: "POST" }});
+        const resp = await fetch("/api/reanalisar", {{
+            method: "POST",
+            headers: {{
+                "Content-Type": "application/json",
+                "X-CSRF-Token": obterTokenCSRF()
+            }},
+            body: JSON.stringify({{}})
+        }});
         const dados = await resp.json();
-        if (dados.sucesso) {{
+        if (resp.ok && dados.sucesso) {{
             location.reload();
         }} else {{
             alert("Erro ao reanalisar.");

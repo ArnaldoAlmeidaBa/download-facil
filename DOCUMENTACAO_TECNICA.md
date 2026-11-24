@@ -145,17 +145,20 @@ sequenceDiagram
     Server-->>User: Abre navegador com o painel interativo
 
     opt Ação Homologada pelo Usuário
-        User->>Server: POST /api/mover (arquivo, destino)
+        User->>Server: POST /api/mover (arquivo_id, destino_id + token CSRF)
+        Server->>Server: Valida Host, Origin, Content-Type e corpo JSON
+        Server->>Server: Confere IDs e snapshots autorizados da análise
         Server->>Action: mover_arquivo_seguro()
         Action->>FS: Verifica colisão; gera nome_1 se existir
         Action->>FS: Move o arquivo fisicamente
         Action->>Log: Registra operação física em logs/movimentacoes.csv
-        Action-->>Server: Retorna status de sucesso e novo caminho
+        Action-->>Server: Retorna status de sucesso e nome final
         Server-->>User: Atualiza visual da ficha e exibe Toast
     end
 
     opt Reversão de Ação (Desfazer)
-        User->>Server: POST /api/desfazer
+        User->>Server: POST /api/desfazer (JSON + token CSRF)
+        Server->>Server: Confere autorização da origem e do destino
         Server->>Action: desfazer_ultima_movimentacao()
         Action->>FS: Restaura arquivo para pasta original
         Action-->>Server: Retorna confirmação de restauração
@@ -169,11 +172,14 @@ sequenceDiagram
 
 O microservidor embutido (`src/server.py`) opera em `http://127.0.0.1:8080/` utilizando exclusivamente módulos nativos (`http.server`).
 
+O servidor se vincula exclusivamente a `127.0.0.1`. As requisições precisam usar `Host` loopback com a porta ativa; quando `Origin` está presente, ele também deve corresponder à origem HTTP local. Operações POST exigem `Origin`, token `X-CSRF-Token` fornecido no HTML servido, `Content-Type: application/json`, `Content-Length` válido e corpo de até 16 KiB. CORS não é habilitado.
+
 ### 4.1. Endpoints
 
 #### `GET /` ou `/painel.html`
 * **Descrição:** Retorna o documento HTML compilado com os dados da última análise.
 * **Content-Type:** `text/html; charset=utf-8`
+* O servidor injeta no HTML o token CSRF efêmero da instância.
 
 #### `GET /api/status`
 * **Descrição:** Retorna o estado operacional do serviço e histórico de ações em memória.
@@ -183,8 +189,7 @@ O microservidor embutido (`src/server.py`) opera em `http://127.0.0.1:8080/` uti
   "status": "online",
   "historico": [
     {
-      "origem_original": "C:\\Users\\...\\Downloads\\oficio.pdf",
-      "destino_atual": "C:\\Users\\...\\Documents\\Revisar\\oficio.pdf",
+      "arquivo": "oficio.pdf",
       "data_hora": "2026-11-23T17:40:00"
     }
   ]
@@ -192,44 +197,44 @@ O microservidor embutido (`src/server.py`) opera em `http://127.0.0.1:8080/` uti
 ```
 
 #### `POST /api/mover`
-* **Descrição:** Efetua a movimentação física de um arquivo para uma pasta autorizada.
+* **Descrição:** Efetua a movimentação física de um arquivo e destino autorizados na análise atual. Caminhos livres enviados pelo navegador não são aceitos.
 * **Corpo da Requisição (JSON):**
 ```json
 {
-  "origem": "C:\\Users\\ALUNO - CETI\\Downloads\\Oficio_01.pdf",
-  "destino": "C:\\Users\\ALUNO - CETI\\Documents\\Revisar"
+  "arquivo_id": "<identificador opaco da análise>",
+  "destino_id": "<identificador opaco do território documental>"
 }
 ```
+* **Cabeçalhos obrigatórios:** `Origin`, `X-CSRF-Token`, `Content-Type: application/json` e `Content-Length`.
 * **Resposta de Sucesso (200 OK):**
 ```json
 {
   "sucesso": true,
-  "origem": "C:\\Users\\ALUNO - CETI\\Downloads\\Oficio_01.pdf",
-  "destino": "C:\\Users\\ALUNO - CETI\\Documents\\Revisar\\Oficio_01.pdf",
   "nome_final": "Oficio_01.pdf"
 }
 ```
-* **Resposta de Erro (400/500):**
+* **Respostas de erro:** `400` para corpo ou identificadores inválidos, `403/404` para IDs não autorizados, `409` para arquivo/destino alterado ou falha da operação e `413` para corpo acima do limite.
 ```json
 {
   "sucesso": false,
-  "erro": "Arquivo de origem não encontrado: ..."
+  "erro": "Não foi possível mover o arquivo. Reanalise e tente novamente."
 }
 ```
 
 #### `POST /api/desfazer`
 * **Descrição:** Reverte a última operação física registrada na pilha de execução.
+* **Requisição:** corpo JSON vazio (`{}`) e os cabeçalhos de segurança POST descritos acima.
 * **Resposta de Sucesso (200 OK):**
 ```json
 {
   "sucesso": true,
-  "arquivo_restaurado": "C:\\Users\\ALUNO - CETI\\Downloads\\Oficio_01.pdf",
-  "mensagem": "Arquivo restaurado para: C:\\Users\\ALUNO - CETI\\Downloads\\Oficio_01.pdf"
+  "mensagem": "Arquivo restaurado para a pasta original."
 }
 ```
 
 #### `POST /api/reanalisar`
 * **Descrição:** Dispara uma nova varredura completa da pasta de entrada.
+* **Requisição:** corpo JSON vazio (`{}`) e os cabeçalhos de segurança POST descritos acima. Os IDs autorizados anteriormente são descartados durante a reanálise.
 * **Resposta (200 OK):**
 ```json
 {
@@ -237,6 +242,12 @@ O microservidor embutido (`src/server.py`) opera em `http://127.0.0.1:8080/` uti
   "total": 64
 }
 ```
+
+#### `GET /api/documento/{id}`
+* **Descrição:** Serve PDF sob demanda usando um identificador opaco emitido para documento PDF autorizado pela análise atual. Caminhos fornecidos pelo navegador não são aceitos.
+* **Resposta:** `application/pdf`; IDs inválidos/não autorizados retornam `404`, PDFs inválidos `422`, PDFs protegidos `423` e documentos inacessíveis `403`.
+
+Os IDs de arquivos e destinos existem apenas em memória durante a análise. Arquivos de origem precisam permanecer sob uma pasta monitorada; destinos precisam pertencer ao território documental configurado. O servidor confere caminhos resolvidos e metadados (incluindo tamanho, modificação e identidade do arquivo/diretório) antes de operar. Essa verificação reduz substituições e redirecionamentos por links, mas não elimina a janela residual entre validar e acessar o sistema de arquivos.
 
 ---
 
@@ -273,8 +284,8 @@ $$\text{Proporção} = \frac{|S_e|}{|S_t|}$$
 
 A integridade do software é garantida por uma suíte de testes unitários e de integração implementada com `pytest`:
 * **Comando de Execução:** `pytest`
-* **Tempo de Execução:** $\approx 1.2$ segundos
-* **Total de Testes:** 24 casos de teste automatizados
+* **Tempo de Execução:** $\approx 2.8$ segundos (execução EXP-02D.2)
+* **Total de Testes:** 48 casos aprovados (execução EXP-02D.2)
 * **Cobertura Funcional:**
   1. *Normalização e Limpeza Textual* (`test_normalizer.py`)
   2. *Motor de Classificação e Detecção de Conflitos* (`test_classifiers.py`)
@@ -283,6 +294,7 @@ A integridade do software é garantida por uma suíte de testes unitários e de 
   5. *Persistência e Estrutura de Logs CSV* (`test_logger.py`)
   6. *Movimentação Segura, Anti-Sobrescrita e Desfazer* (`test_file_mover.py`)
   7. *Geração e Renderização do Painel HTML* (`test_dashboard.py`)
+  8. *Fronteira de Segurança da API Local* (`test_local_api_security.py`)
 
 ---
 

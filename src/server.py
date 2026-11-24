@@ -1,21 +1,36 @@
 """Servidor local HTTP para o painel interativo do Orquestrador."""
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
+import hmac
 import json
-import webbrowser
-from urllib.parse import parse_qs, urlparse
 import re
+import secrets
+import webbrowser
+from urllib.parse import urlparse
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 
-from src.config import PAINEL_FILE, carregar_perfil
+from src.config import PAINEL_FILE
 from src.actions.file_mover import (
     mover_arquivo_seguro,
     desfazer_ultima_movimentacao,
     obter_historico_movimentacoes,
 )
 from src.core import executar_orquestracao
-from src.document_access import obter_documento_autorizado
+from src.document_access import (
+    autorizar_destino,
+    caminho_destino_autorizado,
+    caminho_fonte_autorizado,
+    obter_arquivo_autorizado,
+    obter_arquivo_registrado,
+    obter_destino_registrado,
+    obter_documento_autorizado,
+    validar_destino,
+)
+
+MAX_CORPO_HTTP_BYTES = 16 * 1024
+HOSTS_LOOPBACK = {"localhost", "127.0.0.1"}
+IDENTIFICADOR_RE = re.compile(r"[A-Za-z0-9_-]{43}\Z")
 
 
 class OrquestradorRequestHandler(BaseHTTPRequestHandler):
@@ -26,16 +41,153 @@ class OrquestradorRequestHandler(BaseHTTPRequestHandler):
         self.send_response(status_code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(corpo)))
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "SAMEORIGIN")
+        self.send_header("Referrer-Policy", "no-referrer")
         self.end_headers()
         self.wfile.write(corpo)
 
-    def do_OPTIONS(self):
-        self.send_response(200)
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+    def _host_valido(self) -> bool:
+        hosts = self.headers.get_all("Host", [])
+        if len(hosts) != 1:
+            return False
+        port = self.server.server_port
+        permitidos = {
+            f"{host}:{port}".lower()
+            for host in HOSTS_LOOPBACK
+        }
+        if port == 80:
+            permitidos.update(HOSTS_LOOPBACK)
+        return hosts[0].strip().lower() in permitidos
+
+    def _origin_valido(self, origin: str) -> bool:
+        port = self.server.server_port
+        permitidas = {
+            f"http://{host}:{port}".lower()
+            for host in HOSTS_LOOPBACK
+        }
+        if port == 80:
+            permitidas.update(f"http://{host}" for host in HOSTS_LOOPBACK)
+        return origin.lower() in permitidas
+
+    def _validar_host_e_origem(self, exigir_origem: bool = False) -> bool:
+        if not self._host_valido():
+            self._responder_json(403, {"sucesso": False, "erro": "Host não autorizado."})
+            return False
+        host = self.headers.get("Host", "").strip().lower()
+        origem = self.headers.get("Origin")
+        origens = self.headers.get_all("Origin", [])
+        if exigir_origem and not origem:
+            self._responder_json(403, {"sucesso": False, "erro": "Origem da requisição não autorizada."})
+            return False
+        if len(origens) > 1:
+            self._responder_json(403, {"sucesso": False, "erro": "Origem da requisição não autorizada."})
+            return False
+        if origem:
+            origem_host = origem.lower().removeprefix("http://")
+            if not self._origin_valido(origem) or origem_host != host:
+                self._responder_json(403, {"sucesso": False, "erro": "Origem da requisição não autorizada."})
+                return False
+        return True
+
+    def _validar_csrf(self) -> bool:
+        tokens = self.headers.get_all("X-CSRF-Token", [])
+        token = tokens[0] if len(tokens) == 1 else ""
+        esperado = getattr(self.server, "csrf_token", "")
+        if not token or not esperado or not hmac.compare_digest(token, esperado):
+            self._responder_json(403, {"sucesso": False, "erro": "Token de segurança inválido."})
+            return False
+        return True
+
+    def _content_length(self) -> tuple[int | None, int | None]:
+        valores = self.headers.get_all("Content-Length", [])
+        if len(valores) > 1:
+            return None, 400
+        valor = self.headers.get("Content-Length")
+        if valor is None:
+            return None, 411
+        if not valor.isdigit():
+            return None, 400
+        if len(valor) > len(str(MAX_CORPO_HTTP_BYTES)):
+            return None, 413
+        tamanho = int(valor)
+        if tamanho > MAX_CORPO_HTTP_BYTES:
+            return None, 413
+        if self.headers.get("Transfer-Encoding"):
+            return None, 400
+        return tamanho, None
+
+    def _content_type_json(self) -> bool:
+        content_types = self.headers.get_all("Content-Type", [])
+        if len(content_types) != 1:
+            return False
+        content_type = content_types[0]
+        return content_type.split(";", 1)[0].strip().lower() == "application/json"
+
+    def _validar_requisicao_mutavel(self) -> int | None:
+        if not self._validar_host_e_origem(exigir_origem=True):
+            return 403
+        if not self._validar_csrf():
+            return 403
+        if not self._content_type_json():
+            self._responder_json(415, {"sucesso": False, "erro": "Content-Type deve ser application/json."})
+            return 415
+        _, erro_tamanho = self._content_length()
+        if erro_tamanho is not None:
+            mensagens = {
+                400: "Content-Length inválido.",
+                411: "Content-Length é obrigatório.",
+                413: "Corpo da requisição excede o limite permitido.",
+            }
+            self._responder_json(erro_tamanho, {"sucesso": False, "erro": mensagens[erro_tamanho]})
+            self.close_connection = True
+            return erro_tamanho
+        return None
+
+    def handle_expect_100(self):
+        if not self._validar_host_e_origem(exigir_origem=True):
+            return False
+        if not self._validar_csrf():
+            return False
+        if not self._content_type_json():
+            self._responder_json(415, {"sucesso": False, "erro": "Content-Type deve ser application/json."})
+            return False
+        _, erro_tamanho = self._content_length()
+        if erro_tamanho is not None:
+            mensagens = {
+                400: "Content-Length inválido.",
+                411: "Content-Length é obrigatório.",
+                413: "Corpo da requisição excede o limite permitido.",
+            }
+            self._responder_json(erro_tamanho, {"sucesso": False, "erro": mensagens[erro_tamanho]})
+            self.close_connection = True
+            return False
+        self.send_response_only(100)
         self.end_headers()
+        return True
+
+    def _ler_json(self) -> dict | None:
+        tamanho, erro = self._content_length()
+        if erro is not None:
+            return None
+        corpo = self.rfile.read(tamanho or 0)
+        if len(corpo) != tamanho:
+            self._responder_json(400, {"sucesso": False, "erro": "Corpo da requisição incompleto."})
+            return None
+        try:
+            payload = json.loads(corpo.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            self._responder_json(400, {"sucesso": False, "erro": "JSON inválido."})
+            return None
+        if not isinstance(payload, dict):
+            self._responder_json(400, {"sucesso": False, "erro": "O corpo JSON deve ser um objeto."})
+            return None
+        return payload
+
+    def do_OPTIONS(self):
+        if self._validar_host_e_origem(exigir_origem=True):
+            self._responder_json(405, {"sucesso": False, "erro": "CORS não é habilitado neste servidor."})
 
     def _responder_texto(self, status_code: int, mensagem: str, content_type: str = "text/plain; charset=utf-8"):
         corpo = mensagem.encode("utf-8")
@@ -44,11 +196,13 @@ class OrquestradorRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(corpo)))
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Frame-Options", "SAMEORIGIN")
+        self.send_header("Referrer-Policy", "no-referrer")
         self.end_headers()
         self.wfile.write(corpo)
 
     def _servir_pdf_autorizado(self, identificador: str):
-        if not re.fullmatch(r"[0-9a-f]{64}", identificador or ""):
+        if not IDENTIFICADOR_RE.fullmatch(identificador or ""):
             self._responder_texto(404, "Documento não autorizado.")
             return
 
@@ -133,6 +287,9 @@ class OrquestradorRequestHandler(BaseHTTPRequestHandler):
             arquivo_aberto.close()
 
     def do_GET(self):
+        if not self._validar_host_e_origem():
+            return
+
         parsed = urlparse(self.path)
 
         if parsed.path in {"/", "/index.html", "/painel.html"}:
@@ -140,17 +297,35 @@ class OrquestradorRequestHandler(BaseHTTPRequestHandler):
                 executar_orquestracao(abrir_navegador=False)
 
             conteudo = PAINEL_FILE.read_bytes()
+            token = getattr(self.server, "csrf_token", "")
+            meta = f'<meta name="csrf-token" content="{token}">'.encode("ascii")
+            marcador = b"</head>"
+            if marcador not in conteudo:
+                self._responder_texto(500, "O painel não possui o cabeçalho esperado.")
+                return
+            conteudo = conteudo.replace(marcador, meta + marcador, 1)
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(conteudo)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("X-Frame-Options", "SAMEORIGIN")
+            self.send_header("Referrer-Policy", "no-referrer")
             self.end_headers()
             self.wfile.write(conteudo)
             return
 
         if parsed.path == "/api/status":
+            historico = [
+                {
+                    "arquivo": Path(item["destino_atual"]).name,
+                    "data_hora": item["data_hora"],
+                }
+                for item in obter_historico_movimentacoes()
+            ]
             self._responder_json(200, {
                 "status": "online",
-                "historico": obter_historico_movimentacoes(),
+                "historico": historico,
             })
             return
 
@@ -162,39 +337,106 @@ class OrquestradorRequestHandler(BaseHTTPRequestHandler):
         self.send_error(404, "Recurso não encontrado")
 
     def do_POST(self):
-        parsed = urlparse(self.path)
-        content_length = int(self.headers.get("Content-Length", 0))
-        body = self.rfile.read(content_length).decode("utf-8") if content_length > 0 else "{}"
+        erro_validacao = self._validar_requisicao_mutavel()
+        if erro_validacao is not None:
+            return
 
-        try:
-            payload = json.loads(body) if body else {}
-        except json.JSONDecodeError:
-            payload = {}
+        parsed = urlparse(self.path)
+        payload = self._ler_json()
+        if payload is None:
+            return
 
         if parsed.path == "/api/mover":
-            origem_str = payload.get("origem")
-            destino_str = payload.get("destino")
-
-            if not origem_str or not destino_str:
+            arquivo_id = payload.get("arquivo_id")
+            destino_id = payload.get("destino_id")
+            if (
+                set(payload) != {"arquivo_id", "destino_id"}
+                or not isinstance(arquivo_id, str)
+                or not IDENTIFICADOR_RE.fullmatch(arquivo_id)
+                or not isinstance(destino_id, str)
+                or not IDENTIFICADOR_RE.fullmatch(destino_id)
+            ):
                 self._responder_json(400, {
                     "sucesso": False,
-                    "erro": "Origem e destino são obrigatórios."
+                    "erro": "Identificadores de arquivo e destino inválidos.",
                 })
                 return
 
+            arquivo_registrado = obter_arquivo_registrado(arquivo_id)
+            if arquivo_registrado is None:
+                self._responder_json(404, {"sucesso": False, "erro": "Arquivo não autorizado."})
+                return
+            arquivo = obter_arquivo_autorizado(arquivo_id)
+            if arquivo is None or not caminho_fonte_autorizado(arquivo.path):
+                self._responder_json(409, {"sucesso": False, "erro": "O arquivo mudou desde a análise."})
+                return
+
+            destino_registrado = obter_destino_registrado(destino_id)
+            if destino_registrado is None:
+                self._responder_json(403, {"sucesso": False, "erro": "Destino não autorizado."})
+                return
+            destino = autorizar_destino(destino_id)
+            if destino is None or not validar_destino(destino_registrado):
+                self._responder_json(409, {"sucesso": False, "erro": "O destino mudou desde a análise."})
+                return
+
             resultado = mover_arquivo_seguro(
-                origem=Path(origem_str),
-                destino_pasta=Path(destino_str),
+                arquivo.path,
+                destino.path,
+                arquivo_autorizado=arquivo,
+                destino_autorizado=destino,
             )
-            self._responder_json(200 if resultado.get("sucesso") else 500, resultado)
+            if not resultado.get("sucesso"):
+                self._responder_json(409, {
+                    "sucesso": False,
+                    "erro": "Não foi possível mover o arquivo. Reanalise e tente novamente.",
+                })
+                return
+            self._responder_json(200, {
+                "sucesso": True,
+                "nome_final": resultado["nome_final"],
+            })
             return
 
         if parsed.path == "/api/desfazer":
+            if payload:
+                self._responder_json(400, {
+                    "sucesso": False,
+                    "erro": "A reversão não aceita campos no corpo.",
+                })
+                return
+            historico = obter_historico_movimentacoes()
+            if historico:
+                ultima = historico[-1]
+                if (
+                    not caminho_fonte_autorizado(ultima["origem_original"])
+                    or not caminho_destino_autorizado(ultima["destino_atual"])
+                ):
+                    self._responder_json(403, {
+                        "sucesso": False,
+                        "erro": "A reversão não pertence a uma operação autorizada.",
+                    })
+                    return
             resultado = desfazer_ultima_movimentacao()
-            self._responder_json(200 if resultado.get("sucesso") else 400, resultado)
+            if not resultado.get("sucesso"):
+                self._responder_json(409, {
+                    "sucesso": False,
+                    "erro": "Não foi possível desfazer a última movimentação.",
+                })
+                return
+            self._responder_json(200, {
+                "sucesso": True,
+                "mensagem": "Arquivo restaurado para a pasta original.",
+            })
             return
 
         if parsed.path == "/api/reanalisar":
+            if payload:
+                self._responder_json(400, {
+                    "sucesso": False,
+                    "erro": "A reanálise não aceita campos no corpo.",
+                })
+                return
             res = executar_orquestracao(abrir_navegador=False)
             self._responder_json(200, {
                 "sucesso": True,
@@ -215,6 +457,7 @@ def iniciar_servidor(porta: int = 8080, abrir_navegador: bool = True):
         porta = porta + 1
         endereco = ("127.0.0.1", porta)
         servidor = ThreadingHTTPServer(endereco, OrquestradorRequestHandler)
+    servidor.csrf_token = secrets.token_urlsafe(32)
 
     url = f"http://localhost:{porta}/"
     print("\n" + "=" * 60)

@@ -9,8 +9,66 @@ Este arquivo preserva o contexto das decisões, alterações, problemas e próxi
 - **Painel:** `painel.html` com suporte a modo interativo (mover em 1 clique e desfazer)
 - **Persistência:** arquivos CSV em `logs/` (`decisoes.csv`, `movimentacoes.csv`)
 - **Modo operacional:** Dry-run por padrão; acionamento físico opcional via servidor local (`python orquestrador.py --servidor`)
-- **Qualidade:** 29 testes automatizados com `pytest` (última execução: 100% de aprovação)
-- **Status:** Modularizado; correção do preview de PDF homologada visualmente pelo usuário em 24/11/2026
+- **Qualidade:** 48 testes automatizados com `pytest` (última validação da EXP-02D.2: 100% de aprovação)
+- **Status:** Modularizado; preview de PDF e EXP-02D.2 homologados pelo usuário em 24/11/2026
+
+## Sessão — 2026-11-24 — Homologação e encerramento da fronteira da API local (EXP-02D.2)
+
+### Objetivo
+
+Concluir a missão de proteção da API local após a homologação técnica e visual, registrar as observações humanas e preservar um ambiente isolado de homologação.
+
+### Homologação humana
+
+O usuário homologou com sucesso o ambiente isolado usando a porta `18080` e confirmou:
+
+- Identificação dos cinco arquivos fictícios e previews de PNG, PDF, DOCX, XLSX e TXT.
+- Movimentação física de um PNG para o destino autorizado, confirmação no Explorador do Windows e reversão bem-sucedida.
+- Reanálise com recuperação das cinco fichas e retorno da imagem ao estado de espera por decisão.
+
+### Ambiente permanente
+
+- Preservado o lançador `tools/homologacao/iniciar_homologacao.py`.
+- O lançador usa exclusivamente `C:\Projetos\orquestrador-downloads-homologacao\perfil-homologacao.json`; valida que o perfil continue apontando apenas para as pastas fictícias previstas e injeta esse perfil nas análises e reanálises.
+- Entrada, destinos, perfil, logs e painel são mantidos fora do repositório, em `C:\Projetos\orquestrador-downloads-homologacao\`.
+- Comando PowerShell para repetir a homologação:
+  ```powershell
+  Set-Location -LiteralPath 'C:\Projetos\orquestrador-downloads'
+  & .\.venv\Scripts\python.exe .\tools\homologacao\iniciar_homologacao.py --porta 18080
+  ```
+- O ambiente não contém documentos reais. Não copiar documentos reais para a pasta de entrada.
+
+### Pendências para missões futuras — não implementadas
+
+1. Corrigir a etiqueta da ficha, que permanece “Aguardando decisão” após a movimentação apesar da confirmação de sucesso.
+2. Atualizar os contadores imediatamente após a movimentação.
+3. Sincronizar estado visual e estado físico dos arquivos.
+4. Diferenciar explicitamente capacidade de leitura semântica de capacidade de visualização.
+5. Ajustar inicialmente as imagens à área disponível no modal.
+6. Avaliar previews estruturados para DOCX e XLSX.
+7. Proteger descrições automáticas e previews textuais contra exposição de informações sensíveis, especialmente credenciais.
+8. Adicionar identificação visual inequívoca do ambiente de homologação, inclusive quando houver outras instâncias em portas diferentes.
+
+### Riscos residuais preservados
+
+- A verificação por metadados não é prova criptográfica do conteúdo do arquivo.
+- Permanece uma janela TOCTOU entre validar um caminho e operar nele.
+- A fronteira não se destina a proteger contra processos maliciosos executados pela mesma conta do usuário.
+- DNS rebinding não foi testado dinamicamente; o servidor restringe `Host` e `Origin` a loopback.
+- A compatibilidade e o empacotamento final com PyInstaller ainda precisam de validação.
+
+### Testes e validações
+
+- Suíte completa `pytest`: 48 testes aprovados.
+- `compileall` executado sem erros.
+- `git diff --check` sem erros.
+- Smoke check do ambiente isolado: painel, mover, desfazer e reanálise funcionaram com as cinco fixtures.
+- Baseline `baseline-pre-v0.2` permanece apontando para `074fde0dd513d0c8c4456c1a86b32b7887aaf5f5`.
+
+### Consolidação
+
+- Alterações da EXP-02D.2 e do lançador de homologação consolidadas em commit local na branch `feature/download-facil-v0.2`.
+- Sem push, geração de executável ou início de missão posterior.
 
 ## Sessão — 2026-11-24 — Correção e homologação do preview de PDF (EXP-02C)
 

@@ -27,15 +27,19 @@ def criar_pdf(caminho: Path, paginas: int = 1, protegido: bool = False) -> None:
 
 def iniciar_servidor():
     servidor = ThreadingHTTPServer(("127.0.0.1", 0), OrquestradorRequestHandler)
-    thread = Thread(target=servidor.serve_forever, daemon=True)
+    thread = Thread(
+        target=lambda: servidor.serve_forever(poll_interval=0.01),
+        daemon=True,
+    )
     thread.start()
     return servidor, thread
 
 
 def requisitar(url: str, headers: dict = None):
     requisicao = urllib.request.Request(url, headers=headers or {})
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     try:
-        with urllib.request.urlopen(requisicao, timeout=5) as resposta:
+        with opener.open(requisicao, timeout=5) as resposta:
             return resposta.status, dict(resposta.headers), resposta.read()
     except urllib.error.HTTPError as erro:
         return erro.code, dict(erro.headers), erro.read()

@@ -9,7 +9,7 @@ Sistema inteligente para analisar arquivos, identificar seu tipo documental, sug
 - **Modos operacionais:**
   1. **Análise / Dry-Run (Padrão):** Analisa e registra sugestões no CSV e gera o painel visual, sem mover nenhum arquivo.
   2. **Interativo / Servidor Local:** Inicia um microservidor HTTP local que conecta o painel no navegador com botões para mover em 1 clique e desfazer movimentações.
-- **Testes Automatizados:** 24 testes unitários e de integração cobrindo regras, extratores, segurança anti-colisão e geração de HTML.
+- **Testes Automatizados:** 48 testes unitários e de integração cobrindo regras, extratores, segurança da API local e geração de HTML (resultado de 24/11/2026).
 
 ## Funcionalidades
 
@@ -69,8 +69,29 @@ python orquestrador.py --servidor
 ```
 Executa a análise, abre o painel em `http://localhost:8080/` e permite que o usuário aprove as movimentações diretamente pelo navegador com segurança total.
 
-### 3. Execução dos Testes Automatizados
+### 3. Homologação Manual Isolada
+
+O lançador [tools/homologacao/iniciar_homologacao.py](tools/homologacao/iniciar_homologacao.py) prepara e inicia um ambiente reutilizável de homologação. Ele usa um perfil exclusivo e não carrega o `perfil.json` do projeto nem o perfil do usuário.
+
+No PowerShell, na raiz do repositório:
+
+```powershell
+& .\.venv\Scripts\python.exe .\tools\homologacao\iniciar_homologacao.py --porta 18080
+```
+
+O painel abre em `http://localhost:18080/`. Encerre o servidor com `Ctrl+C`. O servidor permanece limitado à interface local.
+
+Os documentos fictícios, perfil, logs e painel são mantidos fora do Git em `C:\Projetos\orquestrador-downloads-homologacao\`:
+
+- `entrada\`: PDF, TXT, DOCX, XLSX e PNG fictícios.
+- `destino-revisao\` e `destino-arquivo\`: destinos autorizados pelo perfil de homologação.
+- `perfil-homologacao.json`: perfil exclusivo, validado pelo lançador antes de cada execução.
+- `logs\` e `artefatos\`: logs e painel gerados pelo aplicativo.
+
+Use somente os arquivos fictícios desse ambiente; não copie documentos reais para a pasta de entrada. O painel ainda não possui uma identificação visual inequívoca de homologação: antes de testar, confirme o endereço `localhost:18080` e a mensagem do lançador no terminal. Uma identificação visual explícita permanece pendente.
+
+### 4. Execução dos Testes Automatizados
 ```bash
 pytest
 ```
-Executa os 24 testes automatizados do sistema.
+Executa a suíte automatizada do sistema.
